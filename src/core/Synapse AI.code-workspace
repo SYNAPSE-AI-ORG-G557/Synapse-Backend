@@ -1,0 +1,17 @@
+{
+	"folders": [
+		{
+			"path": "../.."
+		},
+		{
+			"path": "../../../Synapse-Worker"
+		},
+		{
+			"path": "../../../Synapse-Infra"
+		},
+		{
+			"path": "../../../Synapse-Frontend"
+		}
+	],
+	"settings": {}
+}
