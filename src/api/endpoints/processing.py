@@ -1,9 +1,9 @@
-# Synapse-Backend/src/api/endpoints/processing.py
-
 import uuid
-from fastapi import APIRouter, status, Request
+from fastapi import APIRouter, status, Request, Depends
 from src.schemas.job import JobCreate, JobCreated
-from src.core.celery_app import celery_app  # Import the celery client
+from src.core.celery_app import celery_app
+from src.services.dependencies import get_db_service
+from src.services.interfaces._db import IDatabaseService
 
 router = APIRouter()
 
@@ -15,25 +15,28 @@ router = APIRouter()
 async def create_processing_job(
     request: Request,
     job_in: JobCreate,
+    db_service: IDatabaseService = Depends(get_db_service)
 ):
-    """
-    Accepts a new processing job, creates an initial record,
-    and dispatches it to the worker queue.
-    """
     job_id = uuid.uuid4()
 
-    print(f"Received job {job_id} of type {job_in.input_type}")
+    # Create job record in DB
+    await db_service.create_job(job_id=job_id, job_data=job_in)
 
-    # Dispatch the task to the worker via Celery
+    # Dispatch Celery task
     celery_app.send_task(
         "src.tasks.cpu_light_tasks.route_input_task",
         args=[str(job_id), job_in.model_dump()],
     )
-    
+
     status_url = str(request.url_for("get_job_status", job_id=job_id))
     return JobCreated(job_id=job_id, status_url=status_url)
 
-
 @router.get("/status/{job_id}")
-async def get_job_status(job_id: uuid.UUID):
-    return {"job_id": job_id, "status": "PENDING"}
+async def get_job_status(
+    job_id: uuid.UUID,
+    db_service: IDatabaseService = Depends(get_db_service)
+):
+    job = await db_service.get_job_by_id(job_id)
+    if not job:
+        return {"error": "Job not found"}
+    return job

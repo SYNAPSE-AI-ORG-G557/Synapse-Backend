@@ -13,5 +13,7 @@
 			"path": "../../../Synapse-Frontend"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"liveServer.settings.multiRootWorkspaceName": "Synapse-Frontend"
+	}
 }
