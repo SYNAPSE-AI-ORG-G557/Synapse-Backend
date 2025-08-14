@@ -1,33 +1,89 @@
-# Synapse-Backend/src/core/config.py
+# src/core/config.py
 
-from pydantic import PostgresDsn, RedisDsn
+from pydantic import PostgresDsn, RedisDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Optional
 
 
 class Settings(BaseSettings):
-    # Core App
-    PROJECT_NAME: str = "Synapse Backend"
+    # ---------------- Core App ----------------
+    PROJECT_NAME: str = "Synapse Project"
     API_V1_STR: str = "/api/v1"
+    APP_ENV: str = "production"
 
-    # Database
+    # ---------------- PostgreSQL ----------------
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
     POSTGRES_SERVER: str
     POSTGRES_DB: str
-    DATABASE_DSN: PostgresDsn | None = None
+    DATABASE_DSN: Optional[str] = None
 
-    # Redis
+    @field_validator("DATABASE_DSN", mode="before")
+    @classmethod
+    def assemble_db_connection(cls, v, info):
+        if isinstance(v, str):
+            return v
+        return str(PostgresDsn.build(
+            scheme="postgresql+asyncpg",
+            username=info.data["POSTGRES_USER"],
+            password=info.data["POSTGRES_PASSWORD"],
+            host=info.data["POSTGRES_SERVER"],
+            path=f"/{info.data['POSTGRES_DB']}",
+        ))
+
+    # ---------------- Redis ----------------
     REDIS_HOST: str
-    REDIS_PORT: int = 6379
-    REDIS_DB: int = 0
-    REDIS_URL: RedisDsn | None = None
+    REDIS_PORT: int
+    REDIS_DB: int
+    REDIS_URL: Optional[str] = None
 
-    # Celery
-    CELERY_BROKER_URL: str
-    CELERY_RESULT_BACKEND: str
+    @field_validator("REDIS_URL", mode="before")
+    @classmethod
+    def assemble_redis_connection(cls, v, info):
+        if isinstance(v, str):
+            return v
+        return str(RedisDsn.build(
+            scheme="redis",
+            host=info.data["REDIS_HOST"],
+            port=info.data["REDIS_PORT"],
+            path=f"/{info.data['REDIS_DB']}",
+        ))
 
-    # Load from .env
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # ---------------- Celery ----------------
+    CELERY_BROKER_URL: Optional[str] = None
+    CELERY_RESULT_BACKEND: Optional[str] = None
+
+    @field_validator("CELERY_BROKER_URL", mode="before")
+    @classmethod
+    def assemble_celery_broker(cls, v, info):
+        if isinstance(v, str):
+            return v
+        return str(RedisDsn.build(
+            scheme="redis",
+            host=info.data["REDIS_HOST"],
+            port=info.data["REDIS_PORT"],
+            path="/1",  # Broker uses Redis DB 1
+        ))
+
+    @field_validator("CELERY_RESULT_BACKEND", mode="before")
+    @classmethod
+    def assemble_celery_backend(cls, v, info):
+        if isinstance(v, str):
+            return v
+        return str(RedisDsn.build(
+            scheme="redis",
+            host=info.data["REDIS_HOST"],
+            port=info.data["REDIS_PORT"],
+            path="/2",  # Results use Redis DB 2
+        ))
+
+    # ---------------- Pydantic Settings Config ----------------
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
 
 
+# Global settings instance
 settings = Settings()
