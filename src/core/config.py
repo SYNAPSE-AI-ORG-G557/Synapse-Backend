@@ -28,7 +28,7 @@ class Settings(BaseSettings):
             username=info.data["POSTGRES_USER"],
             password=info.data["POSTGRES_PASSWORD"],
             host=info.data["POSTGRES_SERVER"],
-            path=f"/{info.data['POSTGRES_DB']}",
+            path=f"{info.data['POSTGRES_DB']}",
         ))
 
     # ---------------- Redis ----------------

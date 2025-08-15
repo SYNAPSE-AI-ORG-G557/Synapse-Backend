@@ -1,21 +1,26 @@
 # Synapse-Backend/app/main.py
 
-import sys
-import os
-
-# Add project root (two levels up from this file) to sys.path
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
 from fastapi import FastAPI
-from src.api.endpoints import processing  # import your router here
+from src.core.config import settings
+from src.api.endpoints import processing  # Import the router from the processing endpoints file
 
-app = FastAPI(title="Synapse Backend API")
+# The sys.path manipulation is no longer needed because the PYTHONPATH
+# is correctly set in the Docker environment, making imports work naturally.
+
+# Initialize the FastAPI app, using the project name from our settings file.
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+)
+
+# --- Include API Routers ---
+# This line registers all the endpoints from the processing.py file.
+# We use the API_V1_STR from our settings file as a prefix, which is a
+# best practice for versioning your API.
+app.include_router(processing.router, prefix=settings.API_V1_STR, tags=["Processing"])
+
 
 @app.get("/")
 def read_root():
-    return {"message": "Hello, Synapse Backend is running!"}
-
-# Register the processing router under '/jobs' prefix
-app.include_router(processing.router, prefix="/jobs", tags=["Processing"])
+    """A simple root endpoint to confirm the API is running."""
+    return {"message": f"Welcome to the {settings.PROJECT_NAME}!"}
