@@ -77,6 +77,11 @@ class Settings(BaseSettings):
             path="/2",  # Results use Redis DB 2
         ))
 
+    # ---------------- Qdrant ----------------
+    QDRANT_HOST: str
+    QDRANT_PORT: int
+    QDRANT_GRPC_PORT: int
+
     # ---------------- Pydantic Settings Config ----------------
     model_config = SettingsConfigDict(
         env_file=".env",
