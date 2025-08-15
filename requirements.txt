@@ -8,3 +8,4 @@ redis>=4.0
 alembic
 pgvector
 asyncpg 
+sqlalchemy[asyncio]
