@@ -10,3 +10,4 @@ pgvector
 asyncpg 
 sqlalchemy[asyncio]
 qdrant-client[grpc,aio]==1.9.0
+google-generativeai
