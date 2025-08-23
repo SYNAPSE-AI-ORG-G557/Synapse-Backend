@@ -39,7 +39,7 @@ class User(Base):
     full_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     pfpb: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # profile picture
     settings: Mapped[Optional[dict[str, Any]]] = mapped_column(PG_JSON, nullable=True)
-
+    
     # Updated to server-side timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), 
@@ -54,8 +54,7 @@ class User(Base):
     conversations: Mapped[List["Conversation"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     memory_entities: Mapped[List["MemoryEntity"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     api_calls: Mapped[List["ApiCall"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-
-
+    processing_jobs: Mapped[List["ProcessingJob"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 class Session(Base):
     __tablename__ = "sessions"
 
@@ -237,6 +236,8 @@ class ProcessingJob(Base):
     __tablename__ = "processing_jobs"
 
     uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
+    user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False, index=True)
+    user: Mapped["User"] = relationship(back_populates="processing_jobs")
     job_type: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, default="pending", index=True, nullable=False)
 

@@ -1,29 +1,40 @@
-# Synapse-Worker/src/services/factory.py
+# In Synapse-Worker/src/services/factory.py
 
 from contextlib import asynccontextmanager
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-# Import the session factory and redis client from the worker's own core/db modules
-from src.db.session import AsyncSessionFactory
-from src.core.redis_client import get_redis_client
-
-# Import the real service implementations
+# Import the REAL service and the settings
+# NOTE: The worker needs to import from the backend's service/config paths.
+# This assumes your Dockerfile setup makes the backend code available.
 from src.services.real.db_service import RealDatabaseService
-from src.services.real.redis_service import RealRedisService
-
+from src.core.config import settings
 
 @asynccontextmanager
 async def db_service_provider():
-    """A context manager to provide a database service to a Celery task."""
-    session: AsyncSession = AsyncSessionFactory()
-    try:
-        yield RealDatabaseService(session)
-    finally:
-        await session.close()
+    """
+    A context manager that provides a database service to a Celery task.
+    
+    This robust pattern creates a new engine and session for each task,
+    ensuring that all async resources are managed within the same event loop
+    created by `asyncio.run()`.
+    """
+    # 1. Create a new engine specifically for this task's event loop.
+    engine = create_async_engine(str(settings.DATABASE_DSN), pool_pre_ping=True)
+    
+    # 2. Create a session factory bound to this new engine.
+    AsyncSessionFactory = async_sessionmaker(
+        engine,
+        expire_on_commit=False,
+        class_=AsyncSession
+    )
+    
+    async with AsyncSessionFactory() as session:
+        try:
+            # 3. Yield the service with the new session.
+            yield RealDatabaseService(session)
+        finally:
+            # 4. Cleanly dispose of the engine, which closes all its connections.
+            # This runs inside the `async with` block, while the loop is still active.
+            await engine.dispose()
 
-@asynccontextmanager
-async def redis_service_provider():
-    """A context manager to provide a Redis service to a Celery task."""
-    # The redis client's lifecycle is managed by its connection pool,
-    # so we don't need to manually close it here.
-    yield RealRedisService(get_redis_client())
+# You can create similar providers for other services if needed.
