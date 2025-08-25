@@ -10,8 +10,7 @@ from src.schemas.job import JobCreate, JobCreated, JobStatus
 from src.services.real.db_service import RealDatabaseService
 from src.db.session import get_db_session
 # Import the celery app for dispatching tasks
-from src.core.celery_app import celery_app
-
+from src.core.celery_app import app as celery_app
 router = APIRouter()
 
 # --- Dependency Provider ---
@@ -43,7 +42,7 @@ async def create_processing_job(
 
     # Step 2: Dispatch the first task in the processing chain to the Celery worker.
     celery_app.send_task(
-        "src.tasks.cpu_light_tasks.route_input_task",
+        "route_input_task",
         args=[str(job_id), job_in.model_dump()],
     )
 

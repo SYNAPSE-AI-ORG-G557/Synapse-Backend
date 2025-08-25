@@ -198,7 +198,7 @@ class MemoryEntity(Base):
     conversation_id: Mapped[Optional[uuid_lib.UUID]] = mapped_column(ForeignKey("conversations.uuid"), nullable=True)
 
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(1536), nullable=True)
+    embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(768), nullable=True)
 
     extra_meta: Mapped[Optional[dict[str, Any]]] = mapped_column(PG_JSON, nullable=True)
     access_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
