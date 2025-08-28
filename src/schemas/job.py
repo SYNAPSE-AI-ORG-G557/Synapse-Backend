@@ -26,15 +26,20 @@ class JobStateEnum(str, Enum):
 
 class JobCreate(BaseModel):
     """Schema for creating a new job."""
+    user_id: uuid.UUID = Field(
+        ...,
+        description="The UUID of the user submitting the job.",
+        example="f0fe7c3b-5618-424b-ba75-23f1af5fdee9"
+    )
     input_type: str = Field(
         ...,
         description="The type of input data (e.g., 'text', 'image', 'audio').",
-        examples=["text"]
+        example="text"
     )
     input_data: Any = Field(
         ...,
         description="The actual data to be processed.",
-        examples=["This is the text to process."]
+        example="This is the text to process."
     )
 
 
@@ -50,13 +55,8 @@ class JobStatus(BaseModel):
     status: JobStateEnum = Field(..., description="The current processing state of the job.")
     created_at: datetime = Field(..., description="The timestamp when the job was created.")
     updated_at: datetime = Field(..., description="The timestamp when the job was last updated.")
-    
-    # Note: For a real implementation, this would likely be a more complex
-    # object or queried from a separate history table.
     history: List[str] = Field([], description="A log of events for the job's lifecycle.")
-    
     result: Optional[Any] = Field(None, description="The output result of the job upon completion.")
 
     class Config:
-        """Pydantic model configuration."""
         from_attributes = True
