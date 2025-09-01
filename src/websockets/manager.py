@@ -1,14 +1,29 @@
-# Synapse-Backend/src/websockets/manager.py
+# Create this new file at: Synapse-Backend/src/websockets/manager.py
+from typing import Dict
+from fastapi import WebSocket
 
 class ConnectionManager:
-    """
-    A placeholder for the WebSocket connection manager.
-    In a real implementation, this class will manage active connections.
-    """
-    async def send_personal_message(self, message: dict, client_id: str):
-        # This is a placeholder. The real implementation will send a message
-        # over a WebSocket to the specified client.
-        print(f"WEBSOCKET_STUB: Sending to {client_id}: {message}")
+    """Manages active WebSocket connections."""
+    def __init__(self):
+        # Maps a client_id (e.g., user_id) to their WebSocket connection
+        self.active_connections: Dict[str, WebSocket] = {}
 
-# Create a single, global instance of the manager
+    async def connect(self, client_id: str, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections[client_id] = websocket
+        print(f"WebSocket connected for client: {client_id}")
+
+    def disconnect(self, client_id: str):
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+            print(f"WebSocket disconnected for client: {client_id}")
+
+    async def send_personal_message(self, message: dict, client_id: str):
+        if client_id in self.active_connections:
+            await self.active_connections[client_id].send_json(message)
+            print(f"Sent message to {client_id}: {message}")
+        else:
+            print(f"Could not send message: No active WebSocket for client {client_id}")
+
+# Create a single, reusable instance for the application
 connection_manager = ConnectionManager()

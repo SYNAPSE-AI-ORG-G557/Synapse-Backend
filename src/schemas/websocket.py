@@ -12,3 +12,11 @@ class WSClarificationRequest(BaseModel):
     job_id: uuid.UUID
     query_text: str
     options: List[str]
+
+# 🔹 ADDED: Schema for the user's answer coming from the frontend.
+class WSClarificationResponse(BaseModel):
+    """
+    Sent FROM the user TO the backend with their selected answer.
+    """
+    job_id: uuid.UUID
+    selected_option: str # The user's chosen option

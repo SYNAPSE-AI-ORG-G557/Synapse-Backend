@@ -1,5 +1,3 @@
-# src/core/config.py
-
 from pydantic import PostgresDsn, RedisDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
@@ -76,11 +74,31 @@ class Settings(BaseSettings):
             port=info.data["REDIS_PORT"],
             path="/2",  # Results use Redis DB 2
         ))
+        
+    # ---------------- Authentication ----------------
+    JWT_SECRET_KEY: str
+    JWT_REFRESH_SECRET_KEY: str
+    ALGORITHM: str
+    ACCESS_TOKEN_EXPIRE_MINUTES: int
+    REFRESH_TOKEN_EXPIRE_DAYS: int
+
+    # ---------------- Google OAuth2 ----------------
+    GOOGLE_CLIENT_ID: str
+    GOOGLE_CLIENT_SECRET: str
+    
+    # ---------------- Session Management ----------------
+    SESSION_SECRET_KEY: str
 
     # ---------------- Qdrant ----------------
     QDRANT_HOST: str
     QDRANT_PORT: int
     QDRANT_GRPC_PORT: int
+    
+    # ---------------- ML / AI Worker ----------------
+    ML_DEVICE: str = "cpu"
+    USE_API_LLM: bool = False
+    GEMINI_API_KEY: str | None = None
+    ML_MODEL_PATH: Optional[str] = None
 
     # ---------------- Pydantic Settings Config ----------------
     model_config = SettingsConfigDict(
@@ -88,7 +106,6 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore"
     )
-
 
 # Global settings instance
 settings = Settings()

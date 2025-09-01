@@ -1,7 +1,7 @@
 # FIX: Rename uuid import to avoid namespace conflict
 import uuid as uuid_lib
-from datetime import datetime
 from typing import List, Optional, Dict, Any
+from datetime import datetime, date
 
 from sqlalchemy import (
     String,
@@ -12,7 +12,8 @@ from sqlalchemy import (
     ForeignKey,
     Float,
     UUID as SA_UUID,  # Use consistent SQLAlchemy UUID type
-    func  # Added for server-side timestamps
+    func, 
+    Date# Added for server-side timestamps
 )
 from sqlalchemy.dialects.postgresql import JSON as PG_JSON
 from pgvector.sqlalchemy import Vector
@@ -29,22 +30,27 @@ class Base(AsyncAttrs, DeclarativeBase):
 
 # ------------------------- Core User and Session Models -------------------------
 
+
 class User(Base):
     __tablename__ = "users"
 
     uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
     username: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
     email: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
-    password_hash: Mapped[str] = mapped_column(String, nullable=False)
     full_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    hashed_password: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    google_provider_id: Mapped[Optional[str]] = mapped_column(String, unique=True, index=True, nullable=True)
+    date_of_birth: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    
     pfpb: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # profile picture
     settings: Mapped[Optional[dict[str, Any]]] = mapped_column(PG_JSON, nullable=True)
     
-    # Updated to server-side timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), 
-                                                onupdate=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    # --- Relationships ---
     sessions: Mapped[List["Session"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     tasks: Mapped[List["Task"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     notifications: Mapped[List["Notification"]] = relationship(back_populates="user", cascade="all, delete-orphan")
@@ -55,6 +61,7 @@ class User(Base):
     memory_entities: Mapped[List["MemoryEntity"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     api_calls: Mapped[List["ApiCall"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     processing_jobs: Mapped[List["ProcessingJob"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
 class Session(Base):
     __tablename__ = "sessions"
 

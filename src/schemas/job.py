@@ -20,6 +20,8 @@ class JobStateEnum(str, Enum):
     """Enumeration for the possible states of a processing job."""
     PENDING = "PENDING"
     PROCESSING = "PROCESSING"
+    # 🔹 ADDED: New state for when the AI is waiting for user input.
+    AWAITING_CLARIFICATION = "AWAITING_CLARIFICATION"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
 
@@ -30,6 +32,12 @@ class JobCreate(BaseModel):
         ...,
         description="The UUID of the user submitting the job.",
         example="f0fe7c3b-5618-424b-ba75-23f1af5fdee9"
+    )
+    # Add the new field for personalization
+    conversation_id: uuid.UUID = Field(
+        ...,
+        description="The UUID for the ongoing conversation thread.",
+        example="a1b2c3d4-5678-90ab-cdef-1234567890ab"
     )
     input_type: str = Field(
         ...,
