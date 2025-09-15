@@ -1,44 +1,25 @@
-# In src/services/real/db_service.py
-
 import uuid
 from datetime import datetime
 from typing import List, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func # ## FIX: Make sure func is imported for server timestamps
+from sqlalchemy import select, func
 
 from src.schemas.job import JobCreate, JobStatus, JobStateEnum
-from src.db.models import ProcessingJob, User
+from src.db.models import ProcessingJob, User, ChatMessage, ConversationSummary
 
 
 class RealDatabaseService:
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def _get_or_create_test_user(self) -> User:
-        # This helper function is fine as is
-        stmt = select(User).where(User.email == "test@example.com")
-        result = await self._session.execute(stmt)
-        user = result.scalars().first()
-
-        if not user:
-            user = User(username="testuser", email="test@example.com", password_hash="dummy")
-            self._session.add(user)
-            await self._session.commit()
-            await self._session.refresh(user)
-        return user
-
-
     async def create_job(self, job_id: uuid.UUID, job_data: JobCreate) -> JobStatus:
         """Creates a new job record in the 'processing_jobs' table."""
-        test_user = await self._get_or_create_test_user()
         
         new_job = ProcessingJob(
             uuid=job_id,
-            # ## IMPROVEMENT: Assuming you've added user_id to your ProcessingJob model
-            user_id=test_user.uuid, 
+            user_id=job_data.user_id, 
             job_type=job_data.input_type,
             status=JobStateEnum.PENDING.value,
-            # ## FIX: Store input_data directly, not nested in another dict
             input_data=job_data.input_data,
         )
         self._session.add(new_job)
@@ -54,7 +35,6 @@ class RealDatabaseService:
             result=None,
         )
 
-    # ## FIX: Completed the return type hint
     async def get_job_by_id(self, job_id: uuid.UUID) -> Optional[JobStatus]:
         """Retrieves a job from the 'processing_jobs' table."""
         job = await self._session.get(ProcessingJob, job_id)
@@ -80,17 +60,14 @@ class RealDatabaseService:
         if not job:
             raise ValueError(f"Job with ID {job_id} not found in processing_jobs table.")
 
-        # Update status
         job.status = status.value
 
-        # Use DB now() for consistent timestamps
         if status == JobStateEnum.PROCESSING and not job.started_at:
             job.started_at = func.now()
 
         if status in [JobStateEnum.COMPLETED, JobStateEnum.FAILED]:
             job.completed_at = func.now()
 
-        # Store result or error
         if result is not None:
             if status == JobStateEnum.FAILED:
                 job.error_message = str(result)
@@ -101,15 +78,10 @@ class RealDatabaseService:
 
         self._session.add(job)
         await self._session.commit()
-
-        # --- IMPORTANT FIX ---
-        # Explicitly refresh object so no lazy-loading happens
         await self._session.refresh(job)
 
-        # Compute last updated time
         last_update_time = job.completed_at or job.started_at or job.created_at
 
-        # Return safe response
         return JobStatus(
             id=job.uuid,
             status=JobStateEnum(job.status),
@@ -125,3 +97,45 @@ class RealDatabaseService:
         # This placeholder function is fine as is
         print(f"HISTORY for {job_id}: {event_description}")
         return [event_description]
+    
+    # --- Methods for Conversational Memory ---
+    async def add_chat_message(
+        self,
+        *,
+        user_id: uuid.UUID,
+        conversation_id: uuid.UUID,
+        role: str,
+        content: str,
+        job_id: Optional[uuid.UUID] = None,
+        extra_meta: Optional[dict] = None
+    ) -> ChatMessage:
+        """Creates and saves a new chat message to the database."""
+        new_message = ChatMessage(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            job_id=job_id,
+            extra_meta=extra_meta
+        )
+        self._session.add(new_message)
+        await self._session.commit()
+        await self._session.refresh(new_message)
+        return new_message
+
+    async def get_conversation_message_count(self, conversation_id: uuid.UUID) -> int:
+        """Counts the total number of messages in a given conversation."""
+        stmt = select(func.count(ChatMessage.uuid)).where(ChatMessage.conversation_id == conversation_id)
+        result = await self._session.execute(stmt)
+        count = result.scalars().first()
+        return count if count is not None else 0
+
+    async def get_conversation_summary(self, conversation_id: uuid.UUID) -> Optional[str]:
+        """
+        Retrieves the most recent summary for a given conversation.
+        Returns the summary text or None if no summary exists.
+        """
+        stmt = select(ConversationSummary.summary).where(ConversationSummary.conversation_id == conversation_id)
+        result = await self._session.execute(stmt)
+        summary = result.scalars().first()
+        return summary

@@ -1,7 +1,7 @@
 import uuid
 import json
-from typing import Optional
-
+from typing import Dict, List, Optional, Any
+from types import TracebackType
 import redis.asyncio as redis
 from src.services.interfaces._redis import IRedisService, IRedisLock
 from src.schemas.websocket import WSClarificationRequest
@@ -34,6 +34,9 @@ class RealRedisService(IRedisService):
 
     def __init__(self, client: redis.Redis):
         self._client = client
+    def get_client(self) -> redis.Redis:
+        """Returns the underlying redis.asyncio.Redis client instance."""
+        return self._client
 
     async def set_job_state(self, job_id: uuid.UUID, state_data: dict):
         """Stores the volatile state of a job in a Redis HASH."""
@@ -78,3 +81,47 @@ class RealRedisService(IRedisService):
         if data:
             return WSClarificationRequest.model_validate_json(data)
         return None
+    async def add_message_to_history(
+        self,
+        conversation_id: uuid.UUID,
+        message: Dict[str, Any],
+        window_size: int = 50
+    ) -> None:
+        """
+        Atomically adds a message to the conversation history in Redis
+        and trims the list to maintain a fixed-size sliding window.
+        """
+        history_key = f"history:{conversation_id}"
+        message_json = json.dumps(message)
+        
+        async with self._client.pipeline(transaction=True) as pipe:
+            pipe.lpush(history_key, message_json)
+            pipe.ltrim(history_key, 0, window_size - 1)
+            await pipe.execute()
+
+    async def get_recent_history(
+        self,
+        conversation_id: uuid.UUID,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieves the N most recent messages from the conversation history in Redis.
+        """
+        history_key = f"history:{conversation_id}"
+        recent_messages_json = await self._client.lrange(history_key, 0, limit - 1)
+        
+        messages = []
+        for msg_json in recent_messages_json:
+            try:
+                # ❌ BUG: msg_json is already a string, .decode() is incorrect.
+                # msg = json.loads(msg_json.decode('utf-8'))
+                
+                # ✅ FIX: Load the string directly.
+                msg = json.loads(msg_json)
+                messages.append(msg)
+            except (json.JSONDecodeError, TypeError):
+                # This is good practice in case of corrupted data
+                continue
+        
+        # Reverse the list so it's in chronological order (oldest to newest)
+        return messages[::-1]

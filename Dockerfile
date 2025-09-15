@@ -18,6 +18,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
+# --- ADDED: Forcibly remove the conflicting sub-dependency ---
+RUN pip uninstall -y pytest-anyio
+
 
 # --- Stage 2: Final ---
 FROM python:3.11-slim-bookworm
@@ -35,7 +38,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /usr/local/include /usr/local/include
 COPY --from=builder /usr/local/share /usr/local/share
 
-# Copy application code
+# Copy application code (Assuming your app code is in a folder named 'app')
 COPY ./app /code/app
 
 # Switch to non-root user

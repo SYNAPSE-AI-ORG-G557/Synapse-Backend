@@ -1,22 +1,28 @@
 import redis.asyncio as redis
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
 from src.core.config import settings
 
-# Create a connection pool for the Redis client.
-# This is a best practice as it allows for efficient reuse of connections
-# without the overhead of establishing a new connection for every request.
+# The connection pool is the shared resource for efficiency.
 redis_pool = redis.ConnectionPool.from_url(
     str(settings.REDIS_URL),
-    max_connections=10,
-    decode_responses=True  # Decode responses from bytes to UTF-8 strings automatically
+    max_connections=20,
+    decode_responses=True
 )
 
-def get_redis_client() -> redis.Redis:
+@asynccontextmanager
+async def get_redis_context() -> AsyncGenerator[redis.Redis, None]:
     """
-    Returns a Redis client instance from the connection pool.
-    This function can be used as a dependency in FastAPI.
+    Provides a Redis client from the pool within a context manager.
+    Ideal for use inside async Celery tasks to ensure proper cleanup.
     """
-    return redis.Redis(connection_pool=redis_pool)
+    client = redis.Redis(connection_pool=redis_pool)
+    try:
+        yield client
+    finally:
+        # For pooled connections, aclose() releases the connection back to the pool.
+        await client.aclose()
 
-# A single client instance can also be created for use in non-request scopes,
-# like the background Pub/Sub listener we will create later.
-redis_client = get_redis_client()
+# This instance is for non-task scopes, like FastAPI dependencies or startup events.
+# Re-adding this line fixes the `ImportError`.
+redis_client = redis.Redis(connection_pool=redis_pool)

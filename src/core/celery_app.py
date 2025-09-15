@@ -10,3 +10,9 @@ celery_app = Celery(
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
 )
+# 👇 ADD THIS CONFIGURATION BLOCK
+celery_app.conf.update(
+    task_serializer="json",
+    result_serializer="json",
+    accept_content=["json"],
+)

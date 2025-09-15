@@ -4,31 +4,30 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from starlette.middleware.sessions import SessionMiddleware # ++ ADDED ++
+from starlette.middleware.sessions import SessionMiddleware
 from starlette_prometheus import PrometheusMiddleware, metrics
+import structlog
 
 from src.core.config import settings
-from src.api.endpoints import processing, websockets, auth, users
+from src.api.endpoints import processing, websockets, auth, users, conversation
 from src.core.redis_client import redis_client
 from src.websockets.manager import connection_manager
 from src.core.logging_config import setup_logging
-import structlog
+# 👇 Import the vector store service
+from src.services.real.vector_store_service import RealVectorStoreService
 
 # ----------------------------
 # Logging Setup
 # ----------------------------
 setup_logging()
-log = structlog.get_logger()
+log = structlog.get_logger("app.main")
 
 
 # ----------------------------
 # Redis Pub/Sub Listener
 # ----------------------------
 async def redis_pubsub_listener():
-    """
-    Background task listening to the 'job-updates' Redis Pub/Sub channel
-    and forwarding messages to the appropriate WebSocket clients.
-    """
+    """Listens to 'job-updates' and forwards messages to WebSocket clients."""
     pubsub = redis_client.pubsub()
     await pubsub.subscribe("job-updates")
     log.info("Subscribed to 'job-updates' channel")
@@ -52,19 +51,32 @@ async def redis_pubsub_listener():
 
 
 # ----------------------------
-# Lifespan Context
+# Lifespan Context for Startup/Shutdown
 # ----------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Handles application startup and shutdown events."""
     log.info("Application startup")
+    
     # Start background Redis listener
     listener_task = asyncio.create_task(redis_pubsub_listener())
+    
+    # Initialize the Qdrant collection on startup
+    vector_store = RealVectorStoreService()
+    try:
+        log.info("Initializing Qdrant vector store...")
+        await vector_store.initialize_store()
+        log.info("Qdrant vector store initialized successfully.")
+    except Exception as e:
+        log.error("Failed to initialize Qdrant vector store", exc_info=e)
+    
     try:
         yield
     finally:
         log.info("Application shutdown")
         listener_task.cancel()
         await redis_client.aclose()
+        await vector_store.close() # Close the Qdrant client
 
 
 # ----------------------------
@@ -73,24 +85,18 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    lifespan=lifespan
+    lifespan=lifespan # Assign the lifespan handler
 )
 
-# ++ ADDED: Session Middleware for Google OAuth state management ++
+# Add Middleware
 app.add_middleware(SessionMiddleware, secret_key=settings.SESSION_SECRET_KEY)
-
-
-# ----------------------------
-# Prometheus Metrics
-# ----------------------------
 app.add_middleware(PrometheusMiddleware)
 app.add_route("/metrics", metrics)
 
-# ----------------------------
-# Middleware: Request Context for Logging
-# ----------------------------
+
 @app.middleware("http")
 async def add_context_to_logs(request: Request, call_next):
+    """Adds a unique request ID to every log message for traceability."""
     request_id = str(uuid.uuid4())
     structlog.contextvars.bind_contextvars(
         request_id=request_id,
@@ -106,6 +112,7 @@ async def add_context_to_logs(request: Request, call_next):
 app.include_router(auth.router, prefix=settings.API_V1_STR, tags=["Authentication"]) 
 app.include_router(processing.router, prefix=settings.API_V1_STR, tags=["Processing"])
 app.include_router(users.router, prefix=f"{settings.API_V1_STR}/users", tags=["Users"])
+app.include_router(conversation.router, prefix=settings.API_V1_STR, tags=["Conversations"])
 app.include_router(websockets.router)
 
 # ----------------------------

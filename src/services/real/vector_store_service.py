@@ -1,5 +1,3 @@
-# src/services/real/vector_store_service.py
-
 import uuid
 from typing import List, Optional
 from qdrant_client import AsyncQdrantClient, models
@@ -8,7 +6,10 @@ from src.services.interfaces._vector_store import IVectorStoreService
 
 
 class RealVectorStoreService(IVectorStoreService):
-    """Real implementation of the vector store service using Qdrant."""
+    """
+    Real implementation of the vector store service using Qdrant.
+    This service is responsible for vector search and storage.
+    """
 
     _collection_name: str = "synapse_memory"
 
@@ -17,7 +18,7 @@ class RealVectorStoreService(IVectorStoreService):
             host=settings.QDRANT_HOST,
             port=settings.QDRANT_PORT,
             grpc_port=settings.QDRANT_GRPC_PORT,
-            prefer_grpc=True,  # gRPC is generally faster
+            prefer_grpc=True,
         )
 
     async def initialize_store(self):
@@ -30,7 +31,7 @@ class RealVectorStoreService(IVectorStoreService):
             await self._client.create_collection(
                 collection_name=self._collection_name,
                 vectors_config=models.VectorParams(
-                    size=1536,  # Must match your embedding model
+                    size=768,  # Size for BGE embedding model
                     distance=models.Distance.COSINE,
                 ),
             )
@@ -39,7 +40,7 @@ class RealVectorStoreService(IVectorStoreService):
     async def add_document_to_memory(
         self, doc_id: uuid.UUID, embedding: List[float], metadata: dict
     ):
-        """Adds or updates a single document in the Qdrant collection."""
+        """Adds or updates a single document vector in the Qdrant collection."""
         point = models.PointStruct(
             id=str(doc_id),
             vector=embedding,

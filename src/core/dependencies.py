@@ -1,25 +1,27 @@
+import uuid
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.config import settings
 from src.schemas.auth import TokenPayload
-from src.schemas.user import UserPublic
-# This is a placeholder for our mock database from the auth endpoint
-# In a real application, this would import a database service.
-from src.api.endpoints.auth import FAKE_USERS_DB 
+from src.db.database import get_db_session
+from src.services.user_service import UserService
+from src.db.models import User
 
-# This scheme will extract the token from the Authorization header
-# and check that it contains "Bearer". The tokenUrl points to the
-# endpoint that issues the token, which is used for the API docs.
+# This scheme points to the /token endpoint for the API docs.
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/token")
 
-def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> UserPublic:
+async def get_current_user(
+    token: Annotated[str, Depends(oauth2_scheme)],
+    db: Annotated[AsyncSession, Depends(get_db_session)],
+    user_service: UserService = Depends()
+) -> User:
     """
-    Decodes the access token, validates it, and returns the current user.
-    Raises an HTTPException if the token is invalid or expired.
+    Decodes the access token, validates the UUID, and returns the user from the database.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -27,32 +29,30 @@ def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> UserPubli
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        # Decode the JWT using the access token secret key
         payload = jwt.decode(
-            token, settings.JWT_SECRET_KEY, algorithms=[settings.ALGORITHM] # FIX: Correctly pass algorithms as a list
+            token, settings.JWT_SECRET_KEY, algorithms=[settings.ALGORITHM]
         )
-        email: str = payload.get("sub")
-        if email is None:
+        # The 'sub' claim now contains the user's UUID
+        user_uuid_str: str = payload.get("sub")
+        if user_uuid_str is None:
             raise credentials_exception
-        token_data = TokenPayload(sub=email)
+        token_data = TokenPayload(sub=user_uuid_str)
     except JWTError:
-        # This catches any error from jose, like invalid signature or expired token
         raise credentials_exception
     
-    # Retrieve user from our mock database
-    user_data = FAKE_USERS_DB.get(token_data.sub)
-    if user_data is None:
+    # Retrieve user from the database using the UUID
+    user = await user_service.get_user_by_uuid(id=uuid.UUID(token_data.sub), db=db)
+    if user is None:
         raise credentials_exception
         
-    return UserPublic(**user_data)
+    return user
 
-def get_current_active_user(current_user: Annotated[UserPublic, Depends(get_current_user)]) -> UserPublic:
+async def get_current_active_user(
+    current_user: Annotated[User, Depends(get_current_user)]
+) -> User:
     """
-    A composable dependency that first gets the current user, then checks
-    if they are active. In a real app, you'd check a database field.
+    A composable dependency that gets the current user and checks if they are active.
     """
-    # In a real application with a database, you would check a field like `is_active`.
-    # For our mock implementation, we'll assume all users are active.
-    # if not current_user.is_active:
-    #     raise HTTPException(status_code=400, detail="Inactive user")
+    if not current_user.is_active:
+        raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
