@@ -1,8 +1,11 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+# ✅ ADD THIS IMPORT
+from sqlalchemy.orm import selectinload 
 import uuid
 
-from src.db.models import User
+# ✅ IMPORT the User and NotificationPreference models
+from src.db.models import User, NotificationPreference
 from src.schemas.user import UserCreate, ProfileCompletion
 from src.core.security import get_password_hash
 
@@ -19,8 +22,18 @@ class UserService:
         result = await db.execute(select(User).filter(User.google_provider_id == google_id))
         return result.scalars().first()
     
+    # ✅ THIS IS THE ONLY FUNCTION THAT NEEDS TO BE CHANGED
     async def get_user_by_uuid(self, id: uuid.UUID, db: AsyncSession) -> User | None:
-        result = await db.execute(select(User).filter(User.uuid == id))
+        """
+        Gets a user by their UUID and eagerly loads their notification preferences
+        to prevent lazy-loading errors.
+        """
+        stmt = (
+            select(User)
+            .where(User.uuid == id)
+            .options(selectinload(User.notification_preferences))
+        )
+        result = await db.execute(stmt)
         return result.scalars().first()
 
     async def create_user_from_email(self, user_in: UserCreate, db: AsyncSession) -> User:
@@ -34,6 +47,12 @@ class UserService:
             is_active=True
         )
         db.add(db_user)
+        
+        await db.flush()
+        
+        db_prefs = NotificationPreference(user_id=db_user.uuid)
+        db.add(db_prefs)
+
         await db.commit()
         await db.refresh(db_user)
         return db_user
@@ -46,7 +65,6 @@ class UserService:
         full_name: str,
         db: AsyncSession
     ) -> User:
-        # Check for existing user with the same email to avoid conflicts
         existing_user = await self.get_user_by_email(email, db)
         if existing_user:
             raise ValueError("An account with this email already exists.")
@@ -60,6 +78,12 @@ class UserService:
             is_active=True
         )
         db.add(db_user)
+
+        await db.flush()
+        
+        db_prefs = NotificationPreference(user_id=db_user.uuid)
+        db.add(db_prefs)
+        
         await db.commit()
         await db.refresh(db_user)
         return db_user

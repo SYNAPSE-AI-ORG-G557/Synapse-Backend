@@ -20,3 +20,4 @@ pydantic[email]
 python-multipart
 starlette
 itsdangerous
+reportlab

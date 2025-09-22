@@ -109,3 +109,5 @@ class Settings(BaseSettings):
 
 # Global settings instance
 settings = Settings()
+# Add this line for debugging
+print(f"[DEBUG] JWT Refresh Secret Key Loaded: {'Yes' if settings.JWT_REFRESH_SECRET_KEY else 'NO!!!'}")

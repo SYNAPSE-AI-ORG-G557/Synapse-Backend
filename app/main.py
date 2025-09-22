@@ -1,10 +1,13 @@
+# src/main.py
+
 import asyncio
 import json
 import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from starlette.middleware.sessions import SessionMiddleware
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware 
 from starlette_prometheus import PrometheusMiddleware, metrics
 import structlog
 
@@ -13,8 +16,9 @@ from src.api.endpoints import processing, websockets, auth, users, conversation
 from src.core.redis_client import redis_client
 from src.websockets.manager import connection_manager
 from src.core.logging_config import setup_logging
-# 👇 Import the vector store service
+# Import for the lifespan function
 from src.services.real.vector_store_service import RealVectorStoreService
+
 
 # ----------------------------
 # Logging Setup
@@ -76,7 +80,7 @@ async def lifespan(app: FastAPI):
         log.info("Application shutdown")
         listener_task.cancel()
         await redis_client.aclose()
-        await vector_store.close() # Close the Qdrant client
+        await vector_store.close()
 
 
 # ----------------------------
@@ -85,11 +89,26 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    lifespan=lifespan # Assign the lifespan handler
+    lifespan=lifespan
 )
 
-# Add Middleware
-app.add_middleware(SessionMiddleware, secret_key=settings.SESSION_SECRET_KEY)
+# ----------------------------
+# Middleware Configuration
+# ----------------------------
+
+# CORS Middleware should be one of the first
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:4173", # Your frontend dev server
+        "http://localhost:3000", # Common alternative dev port
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.add_middleware(SessionMiddleware, secret_key=settings.SESSION_SECRET_KEY) 
 app.add_middleware(PrometheusMiddleware)
 app.add_route("/metrics", metrics)
 
