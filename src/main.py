@@ -7,7 +7,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI
-from src.api.endpoints import processing
+from src.api.endpoints import processing, ocr
 
 app = FastAPI(title="Synapse Backend API")
 
@@ -17,3 +17,6 @@ def read_root():
 
 # Register the processing router
 app.include_router(processing.router, prefix="/jobs", tags=["Processing"])
+
+# Register the OCR router
+app.include_router(ocr.router, prefix="/api/v1/ocr", tags=["OCR"])

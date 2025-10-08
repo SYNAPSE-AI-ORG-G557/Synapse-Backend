@@ -1,3 +1,5 @@
+# File: src/db/models.py
+
 # FIX: Rename uuid import to avoid namespace conflict
 import uuid as uuid_lib
 from typing import List, Optional, Dict, Any
@@ -60,7 +62,7 @@ class User(Base):
 
 class Session(Base):
     __tablename__ = "sessions"
-    # ... (no changes to this model)
+    
     uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
     user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False)
     token: Mapped[str] = mapped_column(String, unique=True, nullable=False)
@@ -85,10 +87,9 @@ class Task(Base):
     payload: Mapped[Optional[dict[str, Any]]] = mapped_column(PG_JSON, nullable=True)
     extra_meta: Mapped[Optional[dict[str, Any]]] = mapped_column(PG_JSON, nullable=True)
 
-    # Updated timestamps with added updated_at field
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), 
-                                                onupdate=func.now(), nullable=False)
+                                                  onupdate=func.now(), nullable=False)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
@@ -107,7 +108,6 @@ class TaskResult(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     processing_time_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     
-    # Updated to server-side timestamp
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
 
     task: Mapped["Task"] = relationship(back_populates="task_results")
@@ -127,7 +127,6 @@ class Notification(Base):
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     priority: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     
-    # Updated to server-side timestamp
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
 
     user: Mapped["User"] = relationship(back_populates="notifications")
@@ -143,36 +142,45 @@ class NotificationPreference(Base):
     push_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     in_app_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    # Updated to server-side timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), 
-                                                onupdate=func.now(), nullable=False)
+                                                  onupdate=func.now(), nullable=False)
 
     user: Mapped["User"] = relationship(back_populates="notification_preferences")
 
 
 # ------------------------- Conversation and Memory Models -------------------------
 
-# ------------------------- Conversation and Memory Models -------------------------
 class Conversation(Base):
     __tablename__ = "conversations"
 
     uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
     user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False)
-    title: Mapped[str] = mapped_column(String, nullable=False)
+    title: Mapped[str] = mapped_column(String, default="New Chat", nullable=False)
     context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    # ✨ --- NEW FIELDS FOR SHARING --- ✨
+    is_public: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, index=True
+    )
+    share_uuid: Mapped[Optional[uuid_lib.UUID]] = mapped_column(
+        SA_UUID(as_uuid=True), unique=True, index=True, nullable=True
+    )
+    # ✨ ----------------------------- ✨
 
     # --- Relationships ---
     user: Mapped["User"] = relationship(back_populates="conversations")
     memory_entities: Mapped[List["MemoryEntity"]] = relationship(back_populates="conversation", cascade="all, delete-orphan")
     messages: Mapped[List["ChatMessage"]] = relationship(back_populates="conversation", cascade="all, delete-orphan")
     summary: Mapped[Optional["ConversationSummary"]] = relationship(back_populates="conversation", uselist=False, cascade="all, delete-orphan")
+
+
 class MemoryEntity(Base):
     __tablename__ = "memory_entities"
-    # ... (no changes to this model)
+    
     uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
     user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False)
     conversation_id: Mapped[Optional[uuid_lib.UUID]] = mapped_column(ForeignKey("conversations.uuid"), nullable=True)
@@ -184,10 +192,44 @@ class MemoryEntity(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
     user: Mapped["User"] = relationship(back_populates="memory_entities")
     conversation: Mapped[Optional["Conversation"]] = relationship(back_populates="memory_entities")
 
+# ------------------------- Chat Message and Summary Models -------------------------
 
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
+    conversation_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("conversations.uuid"), nullable=False, index=True)
+    user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False, index=True)
+    job_id: Mapped[Optional[uuid_lib.UUID]] = mapped_column(SA_UUID(as_uuid=True), nullable=True)
+    role: Mapped[str] = mapped_column(String(10), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    extra_meta: Mapped[Optional[dict[str, Any]]] = mapped_column(PG_JSON, nullable=True)
+    token_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    
+    user: Mapped["User"] = relationship(back_populates="chat_messages")
+    conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+    
+    __table_args__ = (Index("ix_chat_messages_conversation_created_at", "conversation_id", "created_at"),)
+
+
+class ConversationSummary(Base):
+    __tablename__ = "conversation_summaries"
+
+    uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
+    conversation_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("conversations.uuid"), unique=True, nullable=False, index=True)
+    user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    
+    user: Mapped["User"] = relationship(back_populates="summaries")
+    conversation: Mapped["Conversation"] = relationship(back_populates="summary", uselist=False)
 
 # ------------------------- Vector and Processing Job Models -------------------------
 
@@ -201,10 +243,9 @@ class VectorEmbedding(Base):
     vector: Mapped[List[float]] = mapped_column(Vector(1536), nullable=False)
     model_name: Mapped[str] = mapped_column(String, nullable=False)
 
-    # Updated to server-side timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), 
-                                                onupdate=func.now(), nullable=False)
+                                                  onupdate=func.now(), nullable=False)
 
 
 class ProcessingJob(Base):
@@ -212,23 +253,20 @@ class ProcessingJob(Base):
 
     uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
     user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False, index=True)
-    user: Mapped["User"] = relationship(back_populates="processing_jobs")
+    
     job_type: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, default="pending", index=True, nullable=False)
-
     input_data: Mapped[Optional[dict[str, Any]]] = mapped_column(PG_JSON, nullable=True)
     result_data: Mapped[Optional[dict[str, Any]]] = mapped_column(PG_JSON, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     priority: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-
-    # Updated to server-side timestamp
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     processing_time_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-
+    
+    user: Mapped["User"] = relationship(back_populates="processing_jobs")
 
 # ------------------------- System and API Models -------------------------
 
@@ -246,7 +284,6 @@ class ApiCall(Base):
     response_time_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     token_cost: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     
-    # Updated to server-side timestamp
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
 
     user: Mapped[Optional["User"]] = relationship(back_populates="api_calls")
@@ -261,37 +298,7 @@ class SystemSetting(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     
-    # Updated to server-side timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), 
-                                                onupdate=func.now(), nullable=False)
+                                                  onupdate=func.now(), nullable=False)
     updated_by: Mapped[Optional[uuid_lib.UUID]] = mapped_column(ForeignKey("users.uuid"), nullable=True)
-
-class ChatMessage(Base):
-    __tablename__ = "chat_messages"
-
-    uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
-    conversation_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("conversations.uuid"), nullable=False, index=True)
-    user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False, index=True)
-    job_id: Mapped[Optional[uuid_lib.UUID]] = mapped_column(SA_UUID(as_uuid=True), nullable=True)
-    role: Mapped[str] = mapped_column(String(10), nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    extra_meta: Mapped[Optional[dict[str, Any]]] = mapped_column(PG_JSON, nullable=True)
-    token_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    user: Mapped["User"] = relationship(back_populates="chat_messages")
-    conversation: Mapped["Conversation"] = relationship(back_populates="messages")
-    __table_args__ = (Index("ix_chat_messages_conversation_created_at", "conversation_id", "created_at"),)
-
-class ConversationSummary(Base):
-    __tablename__ = "conversation_summaries"
-
-    uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
-    conversation_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("conversations.uuid"), unique=True, nullable=False, index=True)
-    user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False)
-    summary: Mapped[str] = mapped_column(Text, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
-    user: Mapped["User"] = relationship(back_populates="summaries")
-    conversation: Mapped["Conversation"] = relationship(back_populates="summary", uselist=False)

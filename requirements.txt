@@ -21,3 +21,11 @@ python-multipart
 starlette
 itsdangerous
 reportlab
+# OCR dependencies
+opencv-python-headless
+pytesseract
+easyocr
+torch
+transformers
+Pillow
+numpy

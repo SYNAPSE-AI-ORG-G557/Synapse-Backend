@@ -49,6 +49,7 @@ class JobCreate(BaseModel):
         description="The actual data to be processed.",
         example="This is the text to process."
     )
+    is_personalization_enabled: bool = True # Added from conversation schema
 
 
 class JobCreated(BaseModel):
@@ -68,3 +69,7 @@ class JobStatus(BaseModel):
 
     class Config:
         from_attributes = True
+    
+# ✅ NEW SCHEMA FOR CLARIFICATION
+class ClarificationResponse(BaseModel):
+    user_response: str

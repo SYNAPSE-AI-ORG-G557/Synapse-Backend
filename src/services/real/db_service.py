@@ -1,3 +1,5 @@
+# FILE: src/services/real/db_service.py
+
 import uuid
 from datetime import datetime
 from typing import List, Optional, Any
@@ -11,6 +13,27 @@ from src.db.models import ProcessingJob, User, ChatMessage, ConversationSummary
 class RealDatabaseService:
     def __init__(self, session: AsyncSession):
         self._session = session
+
+    # --- ADDED START: New method for updating user preferences ---
+    async def update_user_settings(self, user_id: uuid.UUID, new_settings: dict) -> User:
+        """
+        Fetches a user and merges new settings into their existing settings JSON field.
+        """
+        user = await self._session.get(User, user_id)
+        if not user:
+            raise ValueError(f"User with ID {user_id} not found.")
+
+        if user.settings is None:
+            user.settings = {}
+        
+        # Merge new settings with existing ones
+        user.settings.update(new_settings)
+        
+        self._session.add(user)
+        await self._session.commit()
+        await self._session.refresh(user)
+        return user
+    # --- ADDED END ---
 
     async def create_job(self, job_id: uuid.UUID, job_data: JobCreate) -> JobStatus:
         """Creates a new job record in the 'processing_jobs' table."""

@@ -134,6 +134,10 @@ app.include_router(users.router, prefix=f"{settings.API_V1_STR}/users", tags=["U
 app.include_router(conversation.router, prefix=settings.API_V1_STR, tags=["Conversations"])
 app.include_router(websockets.router)
 
+# ✅ FIX: Include the public router for shared conversations
+app.include_router(conversation.public_router, prefix=settings.API_V1_STR, tags=["Public"])
+
+
 # ----------------------------
 # Root Endpoint
 # ----------------------------

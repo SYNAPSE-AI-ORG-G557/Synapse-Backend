@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+from typing import List, Optional
 
 # MODIFIED: Added the 'is_personalization_enabled' field
 class MessageCreate(BaseModel):
@@ -33,3 +33,14 @@ class ConversationWithMessages(BaseModel):
 class ConversationUpdate(BaseModel):
     """Schema for updating a conversation's title."""
     title: str = Field(..., min_length=1, max_length=100, description="The new title for the chat.")
+
+# ✨ --- ADD THIS NEW CLASS --- ✨
+class ConversationShareInfo(BaseModel):
+    """Schema for returning information about a shared conversation."""
+    uuid: uuid.UUID
+    title: str
+    is_public: bool
+    share_uuid: Optional[uuid.UUID] = None
+
+    model_config = ConfigDict(from_attributes=True)
+# ✨ -------------------------- ✨
