@@ -216,13 +216,28 @@ class MultiLLMClient:
         if GROQ_AVAILABLE and self.config.groq_api_key:
             self.groq_client = Groq(api_key=self.config.groq_api_key)
 
+        # Auto-select a sensible default to avoid requiring /switch
+        try:
+            if LLMProvider.GROQ in self.available_providers:
+                self.current_provider = LLMProvider.GROQ
+            elif LLMProvider.GEMINI in self.available_providers:
+                self.current_provider = LLMProvider.GEMINI
+        except Exception:
+            pass
+
     def get_response(self, messages: List[Dict[str, str]], provider: Optional[LLMProvider] = None) -> str:
         """Get a response from the selected LLM provider."""
-        # Use the specified provider or current provider
+        # Use the specified provider or current provider; if none, auto-select first available
         target_provider = provider or self.current_provider
-        
         if not target_provider:
-            return "⚠️ No LLM provider selected."
+            if self.available_providers:
+                self.current_provider = self.available_providers[0]
+                target_provider = self.current_provider
+                logging.info(f"🎯 Auto-selected LLM provider: {target_provider.value}")
+            else:
+                return (
+                    "❌ No LLM providers available. Configure GROQ_API_KEY or GEMINI_API_KEY in environment/.env."
+                )
         
         try:
             response = self._get_response_from_provider(messages, target_provider)
