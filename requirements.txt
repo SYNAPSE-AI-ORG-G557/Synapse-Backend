@@ -21,3 +21,8 @@ python-multipart
 starlette
 itsdangerous
 reportlab
+requests
+mcp>=1.0.0
+groq>=0.4.0
+playwright>=1.40.0
+python-dotenv>=1.0.0

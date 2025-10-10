@@ -32,6 +32,9 @@ from src.db import models
 from src.crud import conversation_crud
 from src.services.real.db_service import RealDatabaseService
 from src.services.real.redis_service import RealRedisService
+from src.services.mcp_tools_service import mcp_tools_service
+from src.websockets.manager import connection_manager
+import logging
 
 router = APIRouter()
 
@@ -119,6 +122,100 @@ async def post_message(
         content=message_in.content,
     )
 
+    # Handle different chat modes
+    if message_in.chat_mode == "tools":
+        # Tools mode: Use MCP tools service
+        try:
+            logging.info(f"Processing tools mode query: {message_in.content}")
+            tools_response = await mcp_tools_service.process_tools_query(
+                query=message_in.content,
+                user_id=str(current_user.uuid)
+            )
+            
+            # Save assistant response
+            assistant_message = await db_service.add_chat_message(
+                user_id=current_user.uuid,
+                conversation_id=conversation_id,
+                role="assistant",
+                content=tools_response,
+            )
+            
+            # Send response via WebSocket
+            await connection_manager.send_personal_message(
+                message={
+                    "type": "final_answer",
+                    "content": tools_response,
+                    "conversation_id": str(conversation_id),
+                    "mode": "tools"
+                },
+                client_id=str(current_user.uuid)
+            )
+            
+            return created_message
+            
+        except Exception as e:
+            logging.error(f"Error in tools mode: {e}")
+            error_response = f"❌ Error processing tools request: {str(e)}"
+            
+            # Save error response
+            await db_service.add_chat_message(
+                user_id=current_user.uuid,
+                conversation_id=conversation_id,
+                role="assistant",
+                content=error_response,
+            )
+            
+            # Send error via WebSocket
+            await connection_manager.send_personal_message(
+                message={
+                    "type": "final_answer",
+                    "content": error_response,
+                    "conversation_id": str(conversation_id),
+                    "mode": "tools"
+                },
+                client_id=str(current_user.uuid)
+            )
+            
+            return created_message
+    
+    elif message_in.chat_mode == "both":
+        # Both mode: Use both tools and personalization
+        try:
+            # First try tools
+            tools_response = await mcp_tools_service.process_tools_query(
+                query=message_in.content,
+                user_id=str(current_user.uuid)
+            )
+            
+            # If tools executed successfully, use that response
+            if not tools_response.startswith("❌"):
+                # Save assistant response
+                assistant_message = await db_service.add_chat_message(
+                    user_id=current_user.uuid,
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=tools_response,
+                )
+                
+                # Send response via WebSocket
+                await connection_manager.send_personal_message(
+                    message={
+                        "type": "final_answer",
+                        "content": tools_response,
+                        "conversation_id": str(conversation_id),
+                        "mode": "both"
+                    },
+                    client_id=str(current_user.uuid)
+                )
+                
+                return created_message
+        except Exception as e:
+            logging.warning(f"Tools mode failed in 'both' mode, falling back to personalization: {e}")
+        
+        # Fall through to personalization if tools failed or no tools were needed
+        pass
+    
+    # Personalization mode (default) or fallback from "both" mode
     # If first message → trigger title generation
     if message_count_before_add == 0:
         celery_app.send_task(

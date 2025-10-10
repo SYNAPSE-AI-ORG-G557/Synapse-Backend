@@ -8,6 +8,7 @@ class MessageCreate(BaseModel):
     """Schema for creating a new message."""
     content: str = Field(..., min_length=1, description="The text content of the message.")
     is_personalization_enabled: bool = True
+    chat_mode: str = Field(default="personalization", description="Chat mode: personalization, tools, or both")
 
 class MessagePublic(BaseModel):
     """Public-facing schema for a message."""
