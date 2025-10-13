@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy import select
 
 from src.core.dependencies import get_current_active_user
 from src.db import models
@@ -85,43 +86,6 @@ async def update_user_settings_me(
     await session.refresh(current_user)
     return current_user
 
-@router.patch(
-    "/me/notifications",
-    response_model=UserPublicWithDetails,
-    summary="Update current user's notification preferences"
-)
-async def update_user_notification_prefs(
-    prefs_in: NotificationPreferenceUpdate,
-    current_user: Annotated[models.User, Depends(get_current_active_user)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-):
-    """
-    Update notification preferences for the current user.
-    """
-    prefs = await session.get(
-        models.NotificationPreference,
-        current_user.uuid,
-        options=[selectinload(models.NotificationPreference.user)]
-    )
-    if not prefs:
-        # If user has no preferences yet, create them
-        prefs = models.NotificationPreference(user_id=current_user.uuid)
-
-    prefs_data = prefs_in.model_dump(exclude_unset=True)
-    for field, value in prefs_data.items():
-        setattr(prefs, field, value)
-
-    session.add(prefs)
-    await session.commit()
-    await session.refresh(current_user)
-    
-    # Re-fetch the user with the updated preferences loaded
-    refreshed_user = await session.get(
-        models.User,
-        current_user.uuid,
-        options=[selectinload(models.User.notification_preferences)],
-    )
-    return refreshed_user
 @router.patch(
     "/me/notifications",
     response_model=UserPublicWithDetails,

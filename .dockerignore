@@ -1,7 +1,103 @@
-_pycache__/
+# .dockerignore - Exclude files that change frequently
+# This prevents Docker from invalidating cache when these files change
+
+# Source code (mounted as volume, so don't copy)
+app/
+src/
+
+# Development files
 *.pyc
+__pycache__/
 *.pyo
-.venv/
+*.pyd
+.Python
+env/
 venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
 .git/
+.mypy_cache/
+.pytest_cache/
+.hypothesis/
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test files
+tests/
+test_*.py
+*_test.py
+
+# Documentation
+*.md
+docs/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Environment files
 .env
+.env.local
+.env.*.local
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Node modules (if any)
+node_modules/
+
+# Docker files (except the main one)
+Dockerfile.*
+docker-compose*.yml
+.dockerignore*
+
+# Git
+.git/
+.gitignore
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Alembic
+alembic/versions/*.py
+
+# Other
+*.bak
+*.orig
+*.rej

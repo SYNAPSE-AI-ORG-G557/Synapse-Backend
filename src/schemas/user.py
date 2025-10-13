@@ -32,6 +32,8 @@ class UserUpdate(BaseModel):
     """Schema for updating basic user profile info."""
     full_name: Optional[str] = None
     pfpb: Optional[str] = None # Profile Picture URL
+    date_of_birth: Optional[date] = None
+    daily_song_subscribed: Optional[bool] = None
 
 class UserSettingsUpdate(BaseModel):
     """Schema for updating the generic JSON settings."""
@@ -55,6 +57,8 @@ class NotificationPreferenceUpdate(BaseModel):
 class UserPublicWithDetails(UserPublic):
     """A comprehensive public user model including settings and preferences."""
     pfpb: Optional[str] = None
+    date_of_birth: Optional[date] = None
+    daily_song_subscribed: Optional[bool] = None
     settings: Optional[Dict[str, Any]] = None
     notification_preferences: Optional[NotificationPreferencePublic] = None
 

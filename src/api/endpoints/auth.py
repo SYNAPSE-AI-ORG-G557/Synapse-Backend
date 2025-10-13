@@ -24,6 +24,7 @@ from src.core.security import (
 from src.core.config import settings
 from src.db.database import get_db_session
 from src.services.user_service import UserService
+from src.services.google_auth_service import GoogleAuthService
 
 log = structlog.get_logger(__name__)
 
@@ -34,7 +35,11 @@ oauth.register(
     client_id=settings.GOOGLE_CLIENT_ID,
     client_secret=settings.GOOGLE_CLIENT_SECRET,
     server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-    client_kwargs={'scope': 'openid email profile'}
+    client_kwargs={
+        'scope': 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly',
+        'access_type': 'offline',
+        'prompt': 'consent'
+    }
 )
 
 # --- Dependencies ---
@@ -126,24 +131,43 @@ async def google_login(request: Request):
 async def google_callback(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db_session)],
-    user_service: UserService = Depends()
+    user_service: UserService = Depends(),
+    google_auth_service: GoogleAuthService = Depends()
 ):
     token = await oauth.google.authorize_access_token(request)
+    log.info("Google callback: received token response", token=token)
     user_info = token.get('userinfo')
-    
     google_provider_id = user_info['sub']
+
+    google_refresh_token = token.get('refresh_token')
+
     user = await user_service.get_user_by_google_id(google_id=google_provider_id, db=db)
 
     if user:
+        log.info("Google callback: about to update user tokens", user_uuid=str(user.uuid), token=token)
+        await google_auth_service.store_google_tokens(
+            db=db,
+            user_uuid=user.uuid,
+            access_token=token['access_token'],
+            refresh_token=token.get('refresh_token'),
+            expires_at=token['expires_at']
+        )
+        if not token.get('refresh_token'):
+            log.warning("Google callback: NO refresh_token returned by Google—user may need to revoke consent and re-login", user_uuid=str(user.uuid), google_provider_id=google_provider_id, token=token)
         redirect_response = RedirectResponse(url="http://localhost:4173/dashboard")
-        refresh_token = create_refresh_token(data={"sub": str(user.uuid)})
+        app_refresh_token = create_refresh_token(data={"sub": str(user.uuid)})
         redirect_response.set_cookie(
-            key="refresh_token", value=refresh_token, httponly=True, samesite='lax', secure=False, path='/', domain="localhost"
+            key="refresh_token", value=app_refresh_token, httponly=True, samesite='lax', secure=False, path='/', domain="localhost"
         )
         return redirect_response
 
     completion_token = create_completion_token(
-        data={"google_provider_id": google_provider_id, "email": user_info['email'], "full_name": user_info.get('name')}
+        data={
+            "google_provider_id": google_provider_id,
+            "email": user_info['email'],
+            "full_name": user_info.get('name'),
+            "google_refresh_token": google_refresh_token
+        }
     )
     redirect_url = f"http://localhost:4173/auth/google/callback?token={completion_token}"
     return RedirectResponse(url=redirect_url)
@@ -154,7 +178,8 @@ async def complete_google_user_profile(
     profile_data: ProfileCompletion,
     db: Annotated[AsyncSession, Depends(get_db_session)],
     payload: Annotated[dict, Depends(get_completion_token_payload)],
-    user_service: UserService = Depends()
+    user_service: UserService = Depends(),
+    google_auth_service: GoogleAuthService = Depends()
 ):
     if await user_service.get_user_by_username(username=profile_data.username, db=db):
         raise HTTPException(status_code=400, detail="Username is already taken")
@@ -164,6 +189,10 @@ async def complete_google_user_profile(
         email=payload.get("email"), full_name=payload.get("full_name"), db=db
     )
     
+    google_refresh_token = payload.get("google_refresh_token")
+    if google_refresh_token:
+        await google_auth_service.store_refresh_token(db, user.uuid, google_refresh_token)
+
     access_token = create_access_token(data={"sub": str(user.uuid)})
     refresh_token = create_refresh_token(data={"sub": str(user.uuid)})
     

@@ -7,17 +7,29 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.sessions import SessionMiddleware 
+from starlette.middleware.sessions import SessionMiddleware
 from starlette_prometheus import PrometheusMiddleware, metrics
 import structlog
 
 from src.core.config import settings
-from src.api.endpoints import processing, websockets, auth, users, conversation
+from src.api.endpoints import processing, auth, users, conversation
 from src.core.redis_client import redis_client
-from src.websockets.manager import connection_manager
+# WebSocket functionality handled by orchestrator
 from src.core.logging_config import setup_logging
 # Import for the lifespan function
 from src.services.real.vector_store_service import RealVectorStoreService
+# from src.api.endpoints import ocr  # OCR moved to GPU workers
+from src.api.endpoints import automation
+from src.api.endpoints import internal
+from src.api.endpoints import memory
+from src.api.endpoints import your_space, your_space_enhanced, google_sheets, google_drive_enhanced
+from src.api.endpoints import tools
+from src.api.endpoints import shell
+from src.api.endpoints import google_drive
+from src.api.endpoints import terminal
+from src.api.endpoints import response_formatter
+from src.api.endpoints import system_health
+from src.api.endpoints import browser_proxy
 
 
 # ----------------------------
@@ -45,8 +57,8 @@ async def redis_pubsub_listener():
                 job_id = data.get("job_id")
 
                 if client_id:
-                    await connection_manager.send_personal_message(data, client_id)
-                    log.info("Sent message to client", client_id=client_id, job_id=job_id)
+                    # WebSocket communication handled by orchestrator via Redis
+                    log.info("Message forwarded to orchestrator via Redis", client_id=client_id, job_id=job_id)
                 else:
                     log.warning("No client_id found in message", job_id=job_id)
         except Exception as e:
@@ -132,10 +144,27 @@ app.include_router(auth.router, prefix=settings.API_V1_STR, tags=["Authenticatio
 app.include_router(processing.router, prefix=settings.API_V1_STR, tags=["Processing"])
 app.include_router(users.router, prefix=f"{settings.API_V1_STR}/users", tags=["Users"])
 app.include_router(conversation.router, prefix=settings.API_V1_STR, tags=["Conversations"])
-app.include_router(websockets.router)
-
-# ✅ FIX: Include the public router for shared conversations
+# WebSocket functionality handled by orchestrator
 app.include_router(conversation.public_router, prefix=settings.API_V1_STR, tags=["Public"])
+# app.include_router(ocr.router, prefix="/api/v1/ocr", tags=["OCR"])  # OCR moved to GPU workers
+
+# ✨ --- THE FIX --- ✨
+# The automation router already has a "/automation" prefix internally.
+# We only need to add the global API prefix here.
+app.include_router(automation.router, prefix=settings.API_V1_STR, tags=["Automation"])
+app.include_router(internal.router, prefix="/api/v1/internal", tags=["internal"])
+app.include_router(memory.router, prefix=f"{settings.API_V1_STR}/memory", tags=["Memory"])
+app.include_router(your_space.router, prefix=f"{settings.API_V1_STR}/your-space", tags=["Your Space"])
+app.include_router(your_space_enhanced.router, prefix=f"{settings.API_V1_STR}/your-space", tags=["Your Space Enhanced"])
+app.include_router(tools.router, prefix=f"{settings.API_V1_STR}", tags=["Tools"])
+app.include_router(shell.router, prefix=f"{settings.API_V1_STR}/shell", tags=["Shell"])
+app.include_router(google_drive.router, prefix=f"{settings.API_V1_STR}/google-drive", tags=["Google Drive"])
+app.include_router(google_drive_enhanced.router, prefix=f"{settings.API_V1_STR}/google-drive", tags=["Google Drive Enhanced"])
+app.include_router(google_sheets.router, prefix=f"{settings.API_V1_STR}/google-sheets", tags=["Google Sheets"])
+app.include_router(terminal.router, prefix=f"{settings.API_V1_STR}", tags=["Terminal"])
+app.include_router(response_formatter.router, prefix=f"{settings.API_V1_STR}", tags=["Response Formatter"])
+app.include_router(system_health.router, prefix=f"{settings.API_V1_STR}", tags=["System Health"])
+app.include_router(browser_proxy.router, prefix=f"{settings.API_V1_STR}/browser", tags=["Browser Proxy"])
 
 
 # ----------------------------

@@ -5,11 +5,13 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from pydantic import ValidationError # ✨ NEW: Import ValidationError for robust error handling
 
 from src.core.config import settings
 from src.schemas.auth import TokenPayload
 from src.db.database import get_db_session
+from src.db.session import get_sync_db_session
 from src.services.user_service import UserService
 from src.db import models # ✨ FIX 1: Import the 'models' module
 
@@ -90,3 +92,44 @@ async def get_user_from_token(
     except (JWTError, ValidationError): # ✨ FIX 4: Catch JWTError and ValidationError
         return None
 # ✨ ----------------------------------------------- ✨
+
+# Sync version for endpoints that use sync database sessions
+def get_current_user_sync(
+    token: Annotated[str, Depends(oauth2_scheme)],
+    db: Annotated[Session, Depends(get_sync_db_session)]
+) -> models.User:
+    """
+    Sync version of get_current_user for endpoints using sync database sessions.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(
+            token, settings.JWT_SECRET_KEY, algorithms=[settings.ALGORITHM]
+        )
+        user_uuid_str: str = payload.get("sub")
+        if user_uuid_str is None:
+            raise credentials_exception
+        token_data = TokenPayload(sub=user_uuid_str)
+    except JWTError:
+        raise credentials_exception
+    
+    # Retrieve user from the database using the UUID
+    user = db.query(models.User).filter(models.User.uuid == uuid.UUID(token_data.sub)).first()
+    if user is None:
+        raise credentials_exception
+        
+    return user
+
+def get_current_active_user_sync(
+    current_user: Annotated[models.User, Depends(get_current_user_sync)]
+) -> models.User:
+    """
+    Sync version of get_current_active_user for endpoints using sync database sessions.
+    """
+    if not current_user.is_active:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    return current_user

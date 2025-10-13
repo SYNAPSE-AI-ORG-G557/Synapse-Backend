@@ -16,7 +16,15 @@ from sqlalchemy import (
     UUID as SA_UUID,
     func, 
     Date,
-    Index
+    Index,
+    Column,
+    Integer,
+    String,
+    Boolean,
+    DateTime,
+    Text,
+    ForeignKey,
+    Time
 )
 from sqlalchemy.dialects.postgresql import JSON as PG_JSON
 from pgvector.sqlalchemy import Vector
@@ -36,8 +44,12 @@ class User(Base):
     
     hashed_password: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     google_provider_id: Mapped[Optional[str]] = mapped_column(String, unique=True, index=True, nullable=True)
+    google_access_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    google_refresh_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    google_token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     date_of_birth: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    daily_song_subscribed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     
     pfpb: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # profile picture
     settings: Mapped[Optional[dict[str, Any]]] = mapped_column(PG_JSON, nullable=True)
@@ -58,6 +70,11 @@ class User(Base):
     processing_jobs: Mapped[List["ProcessingJob"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     chat_messages: Mapped[List["ChatMessage"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     summaries: Mapped[List["ConversationSummary"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    todos: Mapped[List["Todo"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    timetable_entries: Mapped[List["TimetableEntry"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    study_schedules: Mapped[List["StudySchedule"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    delayed_automations: Mapped[List["DelayedAutomation"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    tool_activities: Mapped[List["ToolActivity"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class Session(Base):
@@ -182,19 +199,35 @@ class MemoryEntity(Base):
     __tablename__ = "memory_entities"
     
     uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
-    user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False)
-    conversation_id: Mapped[Optional[uuid_lib.UUID]] = mapped_column(ForeignKey("conversations.uuid"), nullable=True)
+    user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False, index=True)
+    conversation_id: Mapped[Optional[uuid_lib.UUID]] = mapped_column(ForeignKey("conversations.uuid"), nullable=True, index=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(768), nullable=True)
     extra_meta: Mapped[Optional[dict[str, Any]]] = mapped_column(PG_JSON, nullable=True)
-    access_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    importance_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    access_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False, index=True)
+    importance_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
-    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, index=True)
     
     user: Mapped["User"] = relationship(back_populates="memory_entities")
     conversation: Mapped[Optional["Conversation"]] = relationship(back_populates="memory_entities")
+    
+    # Performance indexes for common query patterns
+    __table_args__ = (
+        # Composite index for user-based queries with time ordering
+        Index("ix_memory_user_created", "user_id", "created_at"),
+        # Composite index for user-based queries with importance
+        Index("ix_memory_user_importance", "user_id", "importance_score"),
+        # Composite index for user-based queries with access count
+        Index("ix_memory_user_access", "user_id", "access_count"),
+        # Index for vector similarity search optimization
+        Index("ix_memory_embedding_user", "user_id", "embedding"),
+        # Index for conversation-based queries
+        Index("ix_memory_conversation_created", "conversation_id", "created_at"),
+        # Index for expired memories cleanup
+        Index("ix_memory_expires", "expires_at"),
+    )
 
 # ------------------------- Chat Message and Summary Models -------------------------
 
@@ -302,3 +335,148 @@ class SystemSetting(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), 
                                                   onupdate=func.now(), nullable=False)
     updated_by: Mapped[Optional[uuid_lib.UUID]] = mapped_column(ForeignKey("users.uuid"), nullable=True)
+
+
+# ------------------------- Schedule and Student Management Models -------------------------
+
+class Todo(Base):
+    __tablename__ = "todos"
+
+    uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
+    user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False, index=True)
+    
+    title: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    due_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    priority: Mapped[str] = mapped_column(String, default="medium", nullable=False)  # low, medium, high
+    category: Mapped[str] = mapped_column(String, default="general", nullable=False)  # study, assignment, exam, project, personal
+    status: Mapped[str] = mapped_column(String, default="pending", nullable=False, index=True)  # pending, in_progress, completed
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    
+    # Relationships
+    user: Mapped["User"] = relationship("User")
+    
+    __table_args__ = (
+        Index("ix_todos_user_status", "user_id", "status"),
+        Index("ix_todos_user_due_date", "user_id", "due_date"),
+        Index("ix_todos_user_category", "user_id", "category"),
+    )
+
+
+class TimetableEntry(Base):
+    __tablename__ = "timetable_entries"
+
+    uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
+    user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False, index=True)
+    
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    day_of_week: Mapped[int] = mapped_column(Integer, nullable=False)  # 0=Monday, 6=Sunday
+    start_time: Mapped[datetime] = mapped_column(Time, nullable=False)
+    end_time: Mapped[datetime] = mapped_column(Time, nullable=False)
+    room: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    teacher: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    recurring: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    
+    # Link to Celery Beat periodic task for notifications
+    periodic_task_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    # Relationships
+    user: Mapped["User"] = relationship("User")
+    
+    __table_args__ = (
+        Index("ix_timetable_user_day", "user_id", "day_of_week"),
+        Index("ix_timetable_user_subject", "user_id", "subject"),
+    )
+
+
+class StudySchedule(Base):
+    __tablename__ = "study_schedules"
+
+    uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
+    user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False, index=True)
+    
+    task_name: Mapped[str] = mapped_column(String, nullable=False)
+    subject: Mapped[str] = mapped_column(String, nullable=False)
+    schedule_type: Mapped[str] = mapped_column(String, nullable=False)  # daily, weekly, exam_prep
+    time_str: Mapped[str] = mapped_column(String, nullable=False)  # "18:00" or "6:00 PM"
+    duration_minutes: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    days_of_week: Mapped[Optional[List[int]]] = mapped_column(PG_JSON, nullable=True)  # [1,3,5] for Mon,Wed,Fri
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    
+    # Link to Celery Beat periodic task
+    periodic_task_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Link to APScheduler job for reminders
+    apscheduler_job_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    # Relationships
+    user: Mapped["User"] = relationship("User")
+    
+    __table_args__ = (
+        Index("ix_study_schedule_user_subject", "user_id", "subject"),
+        Index("ix_study_schedule_user_type", "user_id", "schedule_type"),
+        Index("ix_study_schedule_enabled", "enabled"),
+    )
+
+
+class DelayedAutomation(Base):
+    __tablename__ = "delayed_automations"
+
+    uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
+    user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False, index=True)
+    conversation_id: Mapped[Optional[uuid_lib.UUID]] = mapped_column(ForeignKey("conversations.uuid"), nullable=True, index=True)
+    
+    automation_type: Mapped[str] = mapped_column(String, nullable=False)  # browser, email, weather, search, file, etc.
+    action: Mapped[str] = mapped_column(String, nullable=False)  # play, open, send, search, read, etc.
+    parameters: Mapped[Dict[str, Any]] = mapped_column(PG_JSON, nullable=False)  # action-specific params
+    delay_str: Mapped[str] = mapped_column(String, nullable=False)  # "5 minutes", "after 1 hour", "at 3 PM"
+    scheduled_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    
+    status: Mapped[str] = mapped_column(String, default="scheduled", nullable=False)  # scheduled, executing, completed, failed
+    apscheduler_job_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    executed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    
+    # Relationships
+    user: Mapped["User"] = relationship("User")
+    conversation: Mapped[Optional["Conversation"]] = relationship("Conversation")
+    
+    __table_args__ = (
+        Index("ix_delayed_automation_user_status", "user_id", "status"),
+        Index("ix_delayed_automation_scheduled_time", "scheduled_time"),
+        Index("ix_delayed_automation_type", "automation_type"),
+    )
+
+
+# ------------------------- Tool Activity Tracking Model -------------------------
+
+class ToolActivity(Base):
+    __tablename__ = "tool_activities"
+
+    uuid: Mapped[uuid_lib.UUID] = mapped_column(SA_UUID(as_uuid=True), primary_key=True, default=uuid_lib.uuid4)
+    user_id: Mapped[uuid_lib.UUID] = mapped_column(ForeignKey("users.uuid"), nullable=False, index=True)
+    
+    type: Mapped[str] = mapped_column(String(50), nullable=False)  # file_operation, web_search, email, calendar, etc.
+    action: Mapped[str] = mapped_column(String(100), nullable=False)  # upload, download, delete, send, create, etc.
+    details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Additional details about the activity
+    status: Mapped[str] = mapped_column(String(20), default="success", nullable=False)  # success, error, pending
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    
+    # Relationship to user
+    user: Mapped["User"] = relationship(back_populates="tool_activities")
+    
+    __table_args__ = (
+        Index("ix_tool_activity_user_timestamp", "user_id", "timestamp"),
+        Index("ix_tool_activity_type", "type"),
+        Index("ix_tool_activity_status", "status"),
+    )

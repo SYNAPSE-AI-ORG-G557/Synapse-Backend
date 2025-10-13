@@ -49,7 +49,7 @@ async def create_processing_job(
 
     celery_app.send_task(
         "route_input_task",
-        args=[str(job_id), user_id, job_dict, conversation_id],
+        args=[str(job_id), user_id, job_dict, conversation_id, job_in.is_personalization_enabled],
         queue="cpu_light"
     )
 
@@ -58,7 +58,7 @@ async def create_processing_job(
 
 
 @router.get(
-    "/jobs/status/{job_id}",
+    "/status/{job_id}",
     response_model=JobStatus,
     summary="Get the status of a processing job",
 )

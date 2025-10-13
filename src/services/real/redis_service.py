@@ -94,6 +94,9 @@ class RealRedisService(IRedisService):
         history_key = f"history:{conversation_id}"
         message_json = json.dumps(message)
         
+        # Debug logging to see what's being stored
+        print(f"DEBUG: Storing message in Redis - Key: {history_key}, Role: {message.get('role', 'Unknown')}, Content: {message.get('content', '')[:50]}...")
+        
         async with self._client.pipeline(transaction=True) as pipe:
             pipe.lpush(history_key, message_json)
             pipe.ltrim(history_key, 0, window_size - 1)
@@ -125,3 +128,32 @@ class RealRedisService(IRedisService):
         
         # Reverse the list so it's in chronological order (oldest to newest)
         return messages[::-1]
+
+    async def publish_job_update(self, job_id: uuid.UUID, message: dict) -> None:
+        """Publishes a job update message to the job-updates channel."""
+        channel = "job-updates"
+        message_json = json.dumps(message)
+        await self._client.publish(channel, message_json)
+
+    def acquire_job_lock(self, job_id: uuid.UUID, timeout: int = 60) -> IRedisLock:
+        """Acquires a distributed lock for a specific job_id."""
+        lock_key = f"lock:job:{job_id}"
+        lock = self._client.lock(lock_key, timeout=timeout)
+        return RedisLockWrapper(lock)
+
+    async def store_clarification_request(
+        self, job_id: uuid.UUID, request: WSClarificationRequest
+    ) -> None:
+        """Persists a clarification question for a user."""
+        key = f"clarification:{job_id}"
+        await self._client.set(key, request.model_dump_json())
+
+    async def get_clarification_request(
+        self, job_id: uuid.UUID
+    ) -> Optional[WSClarificationRequest]:
+        """Retrieves a pending clarification request."""
+        key = f"clarification:{job_id}"
+        data = await self._client.get(key)
+        if data:
+            return WSClarificationRequest.model_validate_json(data)
+        return None

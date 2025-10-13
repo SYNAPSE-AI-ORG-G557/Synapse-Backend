@@ -38,6 +38,7 @@ from src.core.celery_app import celery_app
 from src.core.dependencies import get_current_active_user, get_user_from_token
 from src.core.redis_client import redis_client
 from src.db import models
+from src.db.models import ChatMessage
 from src.crud import conversation_crud
 from src.services.real.db_service import RealDatabaseService
 from src.services.real.redis_service import RealRedisService
@@ -86,6 +87,41 @@ async def get_user_for_export(
 
 # =============================================================================
 # GET all conversations for the current user
+# =============================================================================
+@router.post(
+    "/conversations",
+    response_model=ConversationWithMessages,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new conversation",
+)
+async def create_conversation(
+    request: Request,
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    """
+    Create a new conversation for the current user.
+    """
+    body = await request.json()
+    title = body.get("title", "New Conversation")
+    
+    conversation = models.Conversation(
+        user_id=current_user.uuid,
+        title=title
+    )
+    session.add(conversation)
+    await session.commit()
+    await session.refresh(conversation)
+    
+    # Return conversation with empty messages list to avoid relationship loading issues
+    return ConversationWithMessages(
+        uuid=conversation.uuid,
+        title=conversation.title,
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+        messages=[]
+    )
+
 # =============================================================================
 @router.get(
     "/conversations/",
@@ -148,7 +184,7 @@ async def post_message(
     )
 
     if message_count_before_add == 0:
-        celery_app.send_task("generate_title_task", args=[str(conversation_id), message_in.content], queue="cpu_heavy")
+        celery_app.send_task("generate_title_task", kwargs={"conversation_id": str(conversation_id), "first_message_content": message_in.content}, queue="gpu")
 
     await redis_service.add_message_to_history(
         conversation_id=conversation_id, message={"role": "user", "content": message_in.content}
@@ -172,6 +208,56 @@ async def post_message(
         celery_app.send_task("summarize_conversation_task", args=[str(conversation_id), str(current_user.uuid)], queue="cpu_heavy")
 
     return created_message
+
+
+# =============================================================================
+# GET all messages for a conversation
+# =============================================================================
+@router.get(
+    "/conversations/{conversation_id}/messages",
+    response_model=List[MessagePublic],
+    summary="Get all messages for a conversation",
+)
+async def get_conversation_messages(
+    conversation_id: uuid.UUID,
+    current_user: models.User = Depends(get_current_active_user),
+    session: AsyncSession = Depends(get_db_session),
+):
+    """
+    Returns all messages for this conversation, newest-last (chronological order).
+    """
+    stmt = (
+        select(ChatMessage)
+        .where(
+            ChatMessage.conversation_id == conversation_id,
+            ChatMessage.user_id == current_user.uuid,
+        )
+        .order_by(ChatMessage.created_at.asc())
+    )
+    result = await session.execute(stmt)
+    messages = result.scalars().all()
+    return [MessagePublic.from_orm(msg) for msg in messages]
+
+
+@router.post("/{conversation_id}/clear-history")
+async def clear_conversation_history(
+    conversation_id: uuid.UUID,
+    current_user: models.User = Depends(get_current_active_user),
+    redis_service: RealRedisService = Depends(get_redis_service),
+):
+    """
+    Clear the Redis conversation history for this conversation.
+    This helps resolve feedback loops where AI responses are treated as user input.
+    """
+    try:
+        # Clear the Redis history
+        history_key = f"history:{conversation_id}"
+        await redis_service._client.delete(history_key)
+        
+        return {"status": "success", "message": f"Cleared history for conversation {conversation_id}"}
+    except Exception as e:
+        log.error(f"Error clearing conversation history: {e}")
+        raise HTTPException(status_code=500, detail="Failed to clear conversation history")
 
 
 # =============================================================================

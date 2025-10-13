@@ -2,6 +2,11 @@
 
 from celery import Celery
 from src.core.config import settings
+from sqlalchemy_celery_beat.models import ModelBase
+# --- PATCH CELERY BEAT TABLE SCHEMAS ---
+for t in ModelBase.metadata.tables.values():
+    t.schema = "public"
+# --- PATCH END ---
 
 # This creates a lightweight client instance for the backend.
 # Its only job is to send tasks to Redis.

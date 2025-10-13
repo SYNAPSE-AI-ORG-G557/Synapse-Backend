@@ -1,6 +1,7 @@
+from typing import Optional
+
 from pydantic import PostgresDsn, RedisDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -12,22 +13,41 @@ class Settings(BaseSettings):
     # ---------------- PostgreSQL ----------------
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
-    POSTGRES_SERVER: str
+    POSTGRES_SERVER: str  # host or host:port
     POSTGRES_DB: str
     DATABASE_DSN: Optional[str] = None
+    DATABASE_DSN_SYNC: Optional[str] = None
 
     @field_validator("DATABASE_DSN", mode="before")
     @classmethod
     def assemble_db_connection(cls, v, info):
-        if isinstance(v, str):
+        if isinstance(v, str) and v:
             return v
-        return str(PostgresDsn.build(
-            scheme="postgresql+asyncpg",
-            username=info.data["POSTGRES_USER"],
-            password=info.data["POSTGRES_PASSWORD"],
-            host=info.data["POSTGRES_SERVER"],
-            path=f"{info.data['POSTGRES_DB']}",
-        ))
+        # IMPORTANT: no leading slash here; PostgresDsn.build will assemble "/<db>" correctly.
+        return str(
+            PostgresDsn.build(
+                scheme="postgresql+asyncpg",
+                username=info.data["POSTGRES_USER"],
+                password=info.data["POSTGRES_PASSWORD"],
+                host=info.data["POSTGRES_SERVER"],
+                path=f"{info.data['POSTGRES_DB']}",
+            )
+        )
+
+    @field_validator("DATABASE_DSN_SYNC", mode="before")
+    @classmethod
+    def assemble_sync_db_connection(cls, v, info):
+        if isinstance(v, str) and v:
+            return v
+        return str(
+            PostgresDsn.build(
+                scheme="postgresql+psycopg2",
+                username=info.data["POSTGRES_USER"],
+                password=info.data["POSTGRES_PASSWORD"],
+                host=info.data["POSTGRES_SERVER"],
+                path=f"{info.data['POSTGRES_DB']}",
+            )
+        )
 
     # ---------------- Redis ----------------
     REDIS_HOST: str
@@ -38,14 +58,16 @@ class Settings(BaseSettings):
     @field_validator("REDIS_URL", mode="before")
     @classmethod
     def assemble_redis_connection(cls, v, info):
-        if isinstance(v, str):
+        if isinstance(v, str) and v:
             return v
-        return str(RedisDsn.build(
-            scheme="redis",
-            host=info.data["REDIS_HOST"],
-            port=info.data["REDIS_PORT"],
-            path=f"/{info.data['REDIS_DB']}",
-        ))
+        return str(
+            RedisDsn.build(
+                scheme="redis",
+                host=info.data["REDIS_HOST"],
+                port=info.data["REDIS_PORT"],
+                path=f"/{info.data['REDIS_DB']}",
+            )
+        )
 
     # ---------------- Celery ----------------
     CELERY_BROKER_URL: Optional[str] = None
@@ -54,27 +76,31 @@ class Settings(BaseSettings):
     @field_validator("CELERY_BROKER_URL", mode="before")
     @classmethod
     def assemble_celery_broker(cls, v, info):
-        if isinstance(v, str):
+        if isinstance(v, str) and v:
             return v
-        return str(RedisDsn.build(
-            scheme="redis",
-            host=info.data["REDIS_HOST"],
-            port=info.data["REDIS_PORT"],
-            path="/1",  # Broker uses Redis DB 1
-        ))
+        return str(
+            RedisDsn.build(
+                scheme="redis",
+                host=info.data["REDIS_HOST"],
+                port=info.data["REDIS_PORT"],
+                path="/1",  # Broker uses Redis DB 1
+            )
+        )
 
     @field_validator("CELERY_RESULT_BACKEND", mode="before")
     @classmethod
     def assemble_celery_backend(cls, v, info):
-        if isinstance(v, str):
+        if isinstance(v, str) and v:
             return v
-        return str(RedisDsn.build(
-            scheme="redis",
-            host=info.data["REDIS_HOST"],
-            port=info.data["REDIS_PORT"],
-            path="/2",  # Results use Redis DB 2
-        ))
-        
+        return str(
+            RedisDsn.build(
+                scheme="redis",
+                host=info.data["REDIS_HOST"],
+                port=info.data["REDIS_PORT"],
+                path="/2",  # Results use Redis DB 2
+            )
+        )
+
     # ---------------- Authentication ----------------
     JWT_SECRET_KEY: str
     JWT_REFRESH_SECRET_KEY: str
@@ -85,7 +111,7 @@ class Settings(BaseSettings):
     # ---------------- Google OAuth2 ----------------
     GOOGLE_CLIENT_ID: str
     GOOGLE_CLIENT_SECRET: str
-    
+
     # ---------------- Session Management ----------------
     SESSION_SECRET_KEY: str
 
@@ -93,21 +119,61 @@ class Settings(BaseSettings):
     QDRANT_HOST: str
     QDRANT_PORT: int
     QDRANT_GRPC_PORT: int
-    
+
     # ---------------- ML / AI Worker ----------------
     ML_DEVICE: str = "cpu"
     USE_API_LLM: bool = False
+
+    # Gemini (primary)
     GEMINI_API_KEY: str | None = None
+    # Default to a fast/stable 2.5 family; override in .env if you want.
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+
     ML_MODEL_PATH: Optional[str] = None
+
+    # ---------------- Local LLM (Ollama) Fallback ----------------
+    # Base URL for your local Ollama daemon
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+
+    # Comma-separated preference order. First available non-empty response wins.
+    # Example env override:
+    #   OLLAMA_MODEL_PREFERENCE="phi3:mini,phi3:latest,mistral:latest"
+    OLLAMA_MODEL_PREFERENCE: str = "phi3:mini,phi3:latest,mistral:latest"
+
+    @field_validator("OLLAMA_BASE_URL", mode="before")
+    @classmethod
+    def normalize_ollama_base(cls, v: Optional[str]):
+        # Ensure we have a sane base URL and no trailing slash
+        if not isinstance(v, str) or not v.strip():
+            return "http://localhost:11434"
+        v = v.strip().rstrip("/")
+        if not (v.startswith("http://") or v.startswith("https://")):
+            v = "http://" + v
+        return v
+
+    @field_validator("OLLAMA_MODEL_PREFERENCE", mode="before")
+    @classmethod
+    def normalize_ollama_models(cls, v: Optional[str]):
+        # Normalize CSV (trim, dedupe in-order)
+        default = "phi3:mini,phi3:latest,mistral:latest"
+        if not isinstance(v, str) or not v.strip():
+            return default
+        items = [x.strip() for x in v.split(",") if x.strip()]
+        seen = set()
+        ordered = []
+        for x in items:
+            if x not in seen:
+                seen.add(x)
+                ordered.append(x)
+        return ",".join(ordered) if ordered else default
 
     # ---------------- Pydantic Settings Config ----------------
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="ignore"
+        extra="ignore",
     )
+
 
 # Global settings instance
 settings = Settings()
-# Add this line for debugging
-print(f"[DEBUG] JWT Refresh Secret Key Loaded: {'Yes' if settings.JWT_REFRESH_SECRET_KEY else 'NO!!!'}")
