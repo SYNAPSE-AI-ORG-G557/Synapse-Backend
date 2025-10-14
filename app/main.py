@@ -12,14 +12,14 @@ from starlette_prometheus import PrometheusMiddleware, metrics
 import structlog
 
 from src.core.config import settings
-from src.api.endpoints import processing, auth, users, conversation
+from src.api.endpoints import processing, auth, users, conversation, automation
 from src.core.redis_client import redis_client
 # WebSocket functionality handled by orchestrator
 from src.core.logging_config import setup_logging
 # Import for the lifespan function
 from src.services.real.vector_store_service import RealVectorStoreService
 # from src.api.endpoints import ocr  # OCR moved to GPU workers
-from src.api.endpoints import automation
+# from src.api.endpoints import automation  # Automation moved to unified Jarvis server
 from src.api.endpoints import internal
 from src.api.endpoints import memory
 from src.api.endpoints import your_space, your_space_enhanced, google_sheets, google_drive_enhanced
@@ -149,8 +149,8 @@ app.include_router(conversation.public_router, prefix=settings.API_V1_STR, tags=
 # app.include_router(ocr.router, prefix="/api/v1/ocr", tags=["OCR"])  # OCR moved to GPU workers
 
 # ✨ --- THE FIX --- ✨
-# The automation router already has a "/automation" prefix internally.
-# We only need to add the global API prefix here.
+# Automation router moved to unified Jarvis server
+# app.include_router(automation.router, prefix=settings.API_V1_STR, tags=["Automation"])
 app.include_router(automation.router, prefix=settings.API_V1_STR, tags=["Automation"])
 app.include_router(internal.router, prefix="/api/v1/internal", tags=["internal"])
 app.include_router(memory.router, prefix=f"{settings.API_V1_STR}/memory", tags=["Memory"])

@@ -9,7 +9,11 @@ from src.core.config import settings
 # This part should remain as it is for your async endpoints.
 async_engine = create_async_engine(
     str(settings.DATABASE_DSN),
-    pool_pre_ping=True,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_timeout=settings.DB_POOL_TIMEOUT,
+    pool_recycle=settings.DB_POOL_RECYCLE,
+    pool_pre_ping=settings.DB_POOL_PRE_PING,
     echo=False
 )
 
@@ -32,7 +36,11 @@ async def get_db_session() -> AsyncSession:
 # Add this entire block to the file.
 sync_engine = create_engine(
     str(settings.DATABASE_DSN_SYNC),
-    pool_pre_ping=True
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_timeout=settings.DB_POOL_TIMEOUT,
+    pool_recycle=settings.DB_POOL_RECYCLE,
+    pool_pre_ping=settings.DB_POOL_PRE_PING
 )
 
 SyncSessionLocal = sessionmaker(

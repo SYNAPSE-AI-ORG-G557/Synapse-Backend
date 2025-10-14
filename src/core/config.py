@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     POSTGRES_DB: str
     DATABASE_DSN: Optional[str] = None
     DATABASE_DSN_SYNC: Optional[str] = None
+    
+    # ---------------- Database Connection Pooling ----------------
+    DB_POOL_SIZE: int = 5  # Base pool size per service
+    DB_MAX_OVERFLOW: int = 10  # Additional connections beyond pool_size
+    DB_POOL_TIMEOUT: int = 30  # Seconds to wait for connection
+    DB_POOL_RECYCLE: int = 1800  # Seconds before connection is recycled
+    DB_POOL_PRE_PING: bool = True  # Validate connections before use
 
     @field_validator("DATABASE_DSN", mode="before")
     @classmethod

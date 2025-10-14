@@ -52,6 +52,29 @@ async def format_response(
             detail=f"Failed to format response: {str(e)}"
         )
 
+@router.post("/format-internal", response_model=FormatResponse)
+async def format_response_internal(request: FormatRequest):
+    """Internal endpoint for formatting responses without authentication"""
+    try:
+        formatter = ResponseFormatter()
+        result = formatter.format_response(
+            content=request.content,
+            response_type=request.response_type,
+            metadata=request.metadata
+        )
+        
+        log.info("Response formatted successfully (internal)", 
+                response_type=request.response_type)
+        
+        return FormatResponse(**result)
+        
+    except Exception as e:
+        log.error("Failed to format response (internal)", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to format response: {str(e)}"
+        )
+
 @router.post("/format-automation-report", response_model=FormatResponse)
 async def format_automation_report(
     content: Dict[str, Any],

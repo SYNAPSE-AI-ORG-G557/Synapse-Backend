@@ -275,35 +275,59 @@ class ResponseFormatter:
 *Schedule operation completed at {{ timestamp }}*
 """,
             
-            'general_response': """
-# {{ title }}
-
+            'retrieve_info': """
 {{ content }}
+""",
+            
+            'store_info': """
+✅ {{ content }}
+""",
+            
+            'browser_automation': """
+🤖 **{{ action|title }}**: {{ content }}
+
+{% if screenshot_url %}
+![Automation Screenshot]({{ screenshot_url }})
+{% endif %}
 
 {% if details %}
-## 📋 Details
-
-{{ details }}
+**Details**: {{ details }}
 {% endif %}
+""",
+            
+            'weather': """
+🌤️ **Weather in {{ location }}**
+
+**Temperature**: {{ temperature }}  
+**Condition**: {{ description }}
+
+{% if additional_info %}
+{{ additional_info }}
+{% endif %}
+""",
+            
+            'web_search': """
+{{ content }}
 
 {% if links %}
-## 🔗 Related Links
-
 {% for link in links %}
-- [{{ link.name }}]({{ link.url }})
+- [{{ link.title }}]({{ link.url }})
 {% endfor %}
 {% endif %}
+""",
+            
+            'news': """
+📰 {{ content }}
 
-{% if metadata %}
-## 📊 Metadata
-
-{% for key, value in metadata.items() %}
-- **{{ key }}**: {{ value }}
+{% if links %}
+{% for link in links %}
+- [{{ link.title }}]({{ link.url }})
 {% endfor %}
 {% endif %}
-
----
-*Response generated at {{ timestamp }}*
+""",
+            
+            'general_response': """
+{{ content }}
 """
         }
         
@@ -498,6 +522,15 @@ class ResponseFormatter:
             log.error("Failed to convert markdown to HTML", error=str(e))
             return f"<p>Error converting markdown: {str(e)}</p>"
     
+    def _format_simple_template(self, template_name: str, data: Dict[str, Any]) -> str:
+        """Format using simple templates"""
+        template = self._get_template(template_name)
+        
+        # Add timestamp for consistency
+        data['timestamp'] = datetime.now().isoformat()
+        
+        return template.render(**data)
+    
     def _format_bytes(self, bytes_value: int) -> str:
         """Format bytes to human readable format"""
         for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
@@ -529,7 +562,19 @@ class ResponseFormatter:
                 data.update(metadata)
             
             # Format based on type
-            if response_type == 'automation_report':
+            if response_type == 'retrieve_info':
+                markdown_content = self._format_simple_template('retrieve_info', data)
+            elif response_type == 'store_info':
+                markdown_content = self._format_simple_template('store_info', data)
+            elif response_type == 'browser_automation':
+                markdown_content = self._format_simple_template('browser_automation', data)
+            elif response_type == 'weather':
+                markdown_content = self._format_simple_template('weather', data)
+            elif response_type == 'web_search':
+                markdown_content = self._format_simple_template('web_search', data)
+            elif response_type == 'news':
+                markdown_content = self._format_simple_template('news', data)
+            elif response_type == 'automation_report':
                 markdown_content = self.format_automation_report(data)
             elif response_type == 'multi_step_result':
                 markdown_content = self.format_multi_step_result(data)
@@ -544,7 +589,7 @@ class ResponseFormatter:
             elif response_type == 'schedule':
                 markdown_content = self.format_schedule_report(data)
             else:
-                markdown_content = self.format_general_response(data)
+                markdown_content = self._format_simple_template('general_response', data)
             
             # Convert to HTML
             html_content = self.to_html(markdown_content)
