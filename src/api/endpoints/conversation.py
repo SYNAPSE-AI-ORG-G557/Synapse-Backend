@@ -23,6 +23,7 @@ from src.schemas.conversation import (
     ConversationWithMessages,
     ConversationUpdate,
 )
+from pydantic import BaseModel
 from src.schemas.job import JobCreate
 from src.db.database import get_db_session
 from src.core.celery_app import celery_app
@@ -344,6 +345,7 @@ async def export_conversation(
     """
     Export a conversation to Markdown (.md), CSV (.csv), or PDF (.pdf).
     """
+    print(f"Export request: conversation_id={conversation_id}, user_id={current_user.uuid}, format={format}")
     stmt = (
         select(models.Conversation)
         .where(
@@ -388,9 +390,14 @@ async def export_conversation(
     # --- PDF Export ---
     if format == "pdf":
         try:
-            from reportlab.lib.pagesizes import letter
-            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-            from reportlab.lib.styles import getSampleStyleSheet
+            from reportlab.lib.pagesizes import letter, A4
+            from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, PageBreak
+            from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+            from reportlab.lib.colors import HexColor, black, darkblue, darkgreen
+            from reportlab.lib.units import inch
+            from reportlab.lib.enums import TA_LEFT, TA_CENTER
+            from reportlab.pdfgen import canvas
+            from reportlab.lib import colors
         except ImportError:
             raise HTTPException(
                 status_code=501,
@@ -398,21 +405,295 @@ async def export_conversation(
             )
 
         buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        doc = SimpleDocTemplate(buffer, pagesize=A4, 
+                              rightMargin=72, leftMargin=72, 
+                              topMargin=72, bottomMargin=18)
+        
+        # Custom styles for better formatting
         styles = getSampleStyleSheet()
-        story = [Paragraph(conversation.title, styles["h1"])]
-
-        for msg in conversation.messages:
-            story.append(Spacer(1, 12))
-            story.append(Paragraph(f"<b>{msg.role.capitalize()}</b>:", styles["h3"]))
-            story.append(
-                Paragraph(msg.content.replace("\n", "<br/>"), styles["BodyText"])
-            )
-
-        doc.build(story)
-        buffer.seek(0)
-        return StreamingResponse(
-            buffer, media_type="application/pdf", headers=headers
+        
+        # Title style
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            spaceAfter=30,
+            alignment=TA_CENTER,
+            textColor=HexColor('#0ea5e9'),  # Cyan color
+            fontName='Helvetica-Bold'
+        )
+        
+        # User message style
+        user_style = ParagraphStyle(
+            'UserMessage',
+            parent=styles['Normal'],
+            fontSize=12,
+            spaceAfter=12,
+            leftIndent=20,
+            rightIndent=20,
+            borderColor=HexColor('#0ea5e9'),
+            borderWidth=1,
+            borderPadding=10,
+            backColor=HexColor('#f0f9ff'),
+            fontName='Helvetica'
+        )
+        
+        # AI message style
+        ai_style = ParagraphStyle(
+            'AIMessage',
+            parent=styles['Normal'],
+            fontSize=12,
+            spaceAfter=12,
+            leftIndent=20,
+            rightIndent=20,
+            borderColor=HexColor('#8b5cf6'),
+            borderWidth=1,
+            borderPadding=10,
+            backColor=HexColor('#faf5ff'),
+            fontName='Helvetica'
+        )
+        
+        # Role header style
+        role_style = ParagraphStyle(
+            'RoleHeader',
+            parent=styles['Heading3'],
+            fontSize=14,
+            spaceAfter=6,
+            textColor=HexColor('#374151'),
+            fontName='Helvetica-Bold'
         )
 
+        story = []
+        
+        # Add title
+        story.append(Paragraph(conversation.title, title_style))
+        story.append(Spacer(1, 20))
+        
+        # Add metadata
+        metadata_style = ParagraphStyle(
+            'Metadata',
+            parent=styles['Normal'],
+            fontSize=10,
+            spaceAfter=20,
+            textColor=HexColor('#6b7280'),
+            alignment=TA_CENTER
+        )
+        story.append(Paragraph(f"Exported on: {conversation.updated_at.strftime('%B %d, %Y at %I:%M %p')}", metadata_style))
+        story.append(Spacer(1, 20))
+
+        # Add messages
+        for i, msg in enumerate(conversation.messages):
+            # Add role header
+            role_text = "You" if msg.role == "user" else "Synapse AI"
+            story.append(Paragraph(role_text, role_style))
+            
+            # Add message content with proper escaping
+            content = msg.content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            content = content.replace("\n", "<br/>")
+            
+            # Choose style based on role
+            message_style = user_style if msg.role == "user" else ai_style
+            story.append(Paragraph(content, message_style))
+            
+            # Add timestamp
+            timestamp_style = ParagraphStyle(
+                'Timestamp',
+                parent=styles['Normal'],
+                fontSize=9,
+                spaceAfter=15,
+                textColor=HexColor('#9ca3af'),
+                alignment=TA_LEFT
+            )
+            story.append(Paragraph(f"<i>{msg.created_at.strftime('%I:%M %p')}</i>", timestamp_style))
+            
+            # Add page break every 10 messages to prevent overly long pages
+            if (i + 1) % 10 == 0 and i < len(conversation.messages) - 1:
+                story.append(PageBreak())
+
+        try:
+            doc.build(story)
+            buffer.seek(0)
+            return StreamingResponse(
+                buffer, 
+                media_type="application/pdf", 
+                headers=headers
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to generate PDF: {str(e)}"
+            )
+
     raise HTTPException(status_code=400, detail="Invalid format specified.")
+
+
+# =============================================================================
+# SHARING SCHEMAS
+# =============================================================================
+class ShareCreate(BaseModel):
+    share_token: str
+
+
+class SharedConversation(BaseModel):
+    uuid: str
+    title: str
+    messages: List[MessagePublic]
+    shared_at: str
+    updated_at: str
+
+
+# =============================================================================
+# POST to create a shareable link for a conversation
+# =============================================================================
+@router.post(
+    "/conversations/{conversation_id}/share",
+    response_model=dict,
+    summary="Create a shareable link for a conversation",
+)
+async def create_share_link(
+    conversation_id: uuid.UUID,
+    share_data: ShareCreate,
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    """
+    Create a shareable link for a conversation by storing the share token.
+    """
+    # Verify the conversation exists and belongs to the user
+    stmt = select(models.Conversation).where(
+        models.Conversation.uuid == conversation_id,
+        models.Conversation.user_id == current_user.uuid,
+    )
+    result = await session.execute(stmt)
+    conversation = result.scalars().first()
+    
+    if not conversation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found or you do not have permission to share it.",
+        )
+
+    # Store the share token in Redis with expiration (30 days)
+    redis_service = RealRedisService(redis_client)
+    share_key = f"share:{share_data.share_token}"
+    share_data_dict = {
+        "conversation_id": str(conversation_id),
+        "user_id": str(current_user.uuid),
+        "created_at": str(uuid.uuid4().time_low),  # Simple timestamp
+    }
+    
+    await redis_service.client.hset(share_key, mapping=share_data_dict)
+    await redis_service.client.expire(share_key, 30 * 24 * 60 * 60)  # 30 days
+
+    return {
+        "share_token": share_data.share_token,
+        "share_url": f"/shared/{share_data.share_token}",
+        "expires_in_days": 30
+    }
+
+
+# =============================================================================
+# GET to retrieve a shared conversation (public access)
+# =============================================================================
+@router.get(
+    "/shared/{share_token}",
+    response_model=SharedConversation,
+    summary="Get a shared conversation by token",
+)
+async def get_shared_conversation(
+    share_token: str,
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+):
+    """
+    Retrieve a shared conversation using the share token (public access).
+    """
+    # Get share data from Redis
+    redis_service = RealRedisService(redis_client)
+    share_key = f"share:{share_token}"
+    share_data = await redis_service.client.hgetall(share_key)
+    
+    if not share_data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Shared conversation not found or link has expired.",
+        )
+
+    conversation_id = share_data.get(b"conversation_id", b"").decode()
+    if not conversation_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invalid share token.",
+        )
+
+    # Get the conversation with messages
+    stmt = (
+        select(models.Conversation)
+        .where(models.Conversation.uuid == conversation_id)
+        .options(selectinload(models.Conversation.messages))
+    )
+    result = await session.execute(stmt)
+    conversation = result.scalars().first()
+
+    if not conversation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found or has been deleted.",
+        )
+
+    # Convert messages to public format
+    messages = []
+    for msg in conversation.messages:
+        messages.append(MessagePublic(
+            uuid=str(msg.uuid),
+            role=msg.role,
+            content=msg.content,
+            created_at=msg.created_at.isoformat(),
+            conversation_id=str(msg.conversation_id)
+        ))
+
+    return SharedConversation(
+        uuid=str(conversation.uuid),
+        title=conversation.title,
+        messages=messages,
+        shared_at=share_data.get(b"created_at", b"").decode(),
+        updated_at=conversation.updated_at.isoformat()
+    )
+
+
+# =============================================================================
+# DELETE to revoke a share link
+# =============================================================================
+@router.delete(
+    "/conversations/{conversation_id}/share",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke a share link for a conversation",
+)
+async def revoke_share_link(
+    conversation_id: uuid.UUID,
+    current_user: Annotated[models.User, Depends(get_current_active_user)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    share_token: str = Query(..., description="The share token to revoke"),
+):
+    """
+    Revoke a share link by deleting the share token from Redis.
+    """
+    # Verify the conversation exists and belongs to the user
+    stmt = select(models.Conversation).where(
+        models.Conversation.uuid == conversation_id,
+        models.Conversation.user_id == current_user.uuid,
+    )
+    result = await session.execute(stmt)
+    conversation = result.scalars().first()
+    
+    if not conversation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found or you do not have permission to modify it.",
+        )
+
+    # Delete the share token from Redis
+    redis_service = RealRedisService(redis_client)
+    share_key = f"share:{share_token}"
+    await redis_service.client.delete(share_key)
+
+    return None
