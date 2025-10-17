@@ -1,110 +1,111 @@
+# In src/services/real/db_service.py
+
 import uuid
+from datetime import datetime
 from typing import List, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from datetime import datetime
+from sqlalchemy import select, func # ## FIX: Make sure func is imported for server timestamps
 
 from src.schemas.job import JobCreate, JobStatus, JobStateEnum
-from src.db.models import Task, TaskResult, User
+from src.db.models import ProcessingJob, User
 
 
 class RealDatabaseService:
-    """A real implementation of the database service using SQLAlchemy."""
-
     def __init__(self, session: AsyncSession):
         self._session = session
 
     async def _get_or_create_test_user(self) -> User:
+        # This helper function is fine as is
         stmt = select(User).where(User.email == "test@example.com")
         result = await self._session.execute(stmt)
         user = result.scalars().first()
 
         if not user:
-            print("Creating a dummy test user for the job...")
-            user = User(
-                username="testuser",
-                email="test@example.com",
-                password_hash="dummy_hash",
-                # No need to set created_at/updated_at - handled by DB
-            )
+            user = User(username="testuser", email="test@example.com", password_hash="dummy")
             self._session.add(user)
             await self._session.commit()
             await self._session.refresh(user)
         return user
 
+
     async def create_job(self, job_id: uuid.UUID, job_data: JobCreate) -> JobStatus:
+        """Creates a new job record in the 'processing_jobs' table."""
         test_user = await self._get_or_create_test_user()
         
-        new_task = Task(
+        new_job = ProcessingJob(
             uuid=job_id,
-            user_id=test_user.uuid,
-            title=f"Job for input type {job_data.input_type}",
-            task_type=job_data.input_type,
+            # ## IMPROVEMENT: Assuming you've added user_id to your ProcessingJob model
+            # user_id=test_user.uuid, 
+            job_type=job_data.input_type,
             status=JobStateEnum.PENDING.value,
-            payload={"input_data": job_data.input_data},
-            # Don't set created_at/updated_at - handled by DB server
+            # ## FIX: Store input_data directly, not nested in another dict
+            input_data=job_data.input_data,
         )
-        self._session.add(new_task)
+        self._session.add(new_job)
         await self._session.commit()
-        await self._session.refresh(new_task)
+        await self._session.refresh(new_job)
 
         return JobStatus(
-            id=new_task.uuid,
-            status=JobStateEnum(new_task.status),
-            created_at=new_task.created_at,
-            updated_at=new_task.updated_at,  # Use the DB-generated value
+            id=new_job.uuid,
+            status=JobStateEnum(new_job.status),
+            created_at=new_job.created_at,
+            updated_at=new_job.created_at,
             history=["Job created"],
             result=None,
         )
 
+    # ## FIX: Completed the return type hint
     async def get_job_by_id(self, job_id: uuid.UUID) -> Optional[JobStatus]:
-        task = await self._session.get(Task, job_id)
-        if not task:
+        """Retrieves a job from the 'processing_jobs' table."""
+        job = await self._session.get(ProcessingJob, job_id)
+        if not job:
             return None
 
-        result_stmt = (
-            select(TaskResult)
-           .where(TaskResult.task_id == job_id)
-           .order_by(TaskResult.created_at.desc())
-        )
-        task_res = (await self._session.execute(result_stmt)).scalars().first()
+        last_update_time = job.completed_at or job.started_at or job.created_at
 
         return JobStatus(
-            id=task.uuid,
-            status=JobStateEnum(task.status),
-            created_at=task.created_at,
-            updated_at=task.updated_at,  # Use the actual updated_at field
-            history=["Job retrieved from database"],
-            result=task_res.result if task_res else None,
+            id=job.uuid,
+            status=JobStateEnum(job.status),
+            created_at=job.created_at,
+            updated_at=last_update_time,
+            history=["Job retrieved"],
+            result=job.result_data,
         )
 
     async def update_job_status(
         self, job_id: uuid.UUID, status: JobStateEnum, result: Optional[Any] = None
     ) -> JobStatus:
-        task = await self._session.get(Task, job_id)
-        if not task:
-            raise ValueError(f"Job with ID {job_id} not found.")
+        """Updates the status of a job in the 'processing_jobs' table."""
+        job = await self._session.get(ProcessingJob, job_id)
+        if not job:
+            raise ValueError(f"Job with ID {job_id} not found in processing_jobs table.")
 
-        # Only update the status - updated_at will be auto-updated by DB
-        task.status = status.value
-        self._session.add(task)
-
+        job.status = status.value
+        
+        # ## IMPROVEMENT: Use the database's 'now()' for consistent timestamps
+        if status == JobStateEnum.PROCESSING and not job.started_at:
+            job.started_at = func.now()
+        
+        # ## FIX: Completed the 'if status in [...]' check
+        if status in [JobStateEnum.COMPLETED, JobStateEnum.FAILED]:
+            job.completed_at = func.now()
+        
+        # ## FIX: Correctly handle storing results vs. error messages
         if result is not None:
-            new_result = TaskResult(
-                task_id=job_id,
-                result=result,
-                success=(status != JobStateEnum.FAILED),
-                # created_at handled by DB
-            )
-            self._session.add(new_result)
-
+            if status == JobStateEnum.FAILED:
+                job.error_message = str(result)
+                job.result_data = None
+            else:
+                job.result_data = result
+                job.error_message = None
+            
+        self._session.add(job)
         await self._session.commit()
-        await self._session.refresh(task)  # Refresh to get updated timestamps
         return await self.get_job_by_id(job_id)
 
     async def add_job_history_event(
         self, job_id: uuid.UUID, event_description: str
     ) -> List[str]:
-        # For now, just log - could implement actual history storage later
+        # This placeholder function is fine as is
         print(f"HISTORY for {job_id}: {event_description}")
         return [event_description]
