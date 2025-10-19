@@ -40,7 +40,7 @@ COPY --from=builder /usr/local/share /usr/local/share
 
 # Copy application code (Assuming your app code is in a folder named 'app')
 COPY ./app /code/app
-COPY ./src /code/src  
+COPY ./src /code/src  # Fixed: Copy src directory for module imports  
 # Switch to non-root user
 USER appuser
 
