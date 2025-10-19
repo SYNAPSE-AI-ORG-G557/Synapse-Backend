@@ -1,6 +1,6 @@
 # Build argument to force rebuild - Railway cache busting
 ARG BUILD_DATE=2025-01-19
-ARG CACHE_BUST=railway-deploy-fix-v4
+ARG CACHE_BUST=railway-deploy-fix-v5
 
 # --- Stage 1: Builder ---
 FROM python:3.11-slim-bookworm AS builder
@@ -25,7 +25,7 @@ FROM python:3.11-slim-bookworm
 WORKDIR /code
 
 # Set PYTHONPATH to include all necessary paths for module resolution
-ENV PYTHONPATH="/code:/code/src:/code/app"
+ENV PYTHONPATH="/code:/code/src:/code/app:/code/src/core:/code/src/api"
 
 # Copy installed packages from builder
 COPY --from=builder /usr/local/lib/python3.11 /usr/local/lib/python3.11

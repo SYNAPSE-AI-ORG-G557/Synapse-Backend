@@ -9,7 +9,14 @@ from contextlib import asynccontextmanager
 
 # Add the parent directory to Python path for Railway deployment
 # This allows importing 'src' as a top-level module
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+parent_dir = os.path.join(os.path.dirname(__file__), '..')
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+# Also add the src directory directly as a fallback
+src_dir = os.path.join(parent_dir, 'src')
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
