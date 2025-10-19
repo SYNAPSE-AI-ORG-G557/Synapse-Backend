@@ -1,7 +1,23 @@
-_pycache__/
+# Python
+__pycache__/
 *.pyc
 *.pyo
+*.pyd
+*.swp
+*.egg-info/
+
+# Virtual envs
 .venv/
 venv/
+
+# Git & local env
 .git/
 .env
+.env.*
+
+# Tests & tooling caches (optional but nice)
+.pytest_cache/
+.mypy_cache/
+.coverage
+dist/
+build/

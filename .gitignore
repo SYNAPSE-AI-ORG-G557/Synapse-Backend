@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Virtual envs
+.venv/
+venv/
+
+# Env files
+.env
+.env.*
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+.cache/
