@@ -1,6 +1,6 @@
 # Build argument to force rebuild - Railway cache busting
 ARG BUILD_DATE=2025-01-19
-ARG CACHE_BUST=railway-deploy-fix-v5
+ARG CACHE_BUST=railway-deploy-fix-v6-debug
 
 # --- Stage 1: Builder ---
 FROM python:3.11-slim-bookworm AS builder

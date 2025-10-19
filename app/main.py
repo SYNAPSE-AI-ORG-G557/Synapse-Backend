@@ -18,19 +18,91 @@ src_dir = os.path.join(parent_dir, 'src')
 if src_dir not in sys.path:
     sys.path.insert(0, src_dir)
 
+# Debug: Print the current working directory and Python path
+print(f"Current working directory: {os.getcwd()}")
+print(f"Python path: {sys.path}")
+print(f"Parent directory: {parent_dir}")
+print(f"Src directory: {src_dir}")
+print(f"Directory contents: {os.listdir(parent_dir) if os.path.exists(parent_dir) else 'Parent dir not found'}")
+print(f"Src directory contents: {os.listdir(src_dir) if os.path.exists(src_dir) else 'Src dir not found'}")
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware 
 from starlette_prometheus import PrometheusMiddleware, metrics
 import structlog
 
-from src.core.config import settings
-from src.api.endpoints import processing, websockets, auth, users, conversation
-from src.core.redis_client import redis_client
-from src.websockets.manager import connection_manager
-from src.core.logging_config import setup_logging
-# Import for the lifespan function
-from src.services.real.vector_store_service import RealVectorStoreService
+# Try to import with better error handling
+try:
+    from src.core.config import settings
+    print("✅ Successfully imported src.core.config")
+except ImportError as e:
+    print(f"❌ Failed to import src.core.config: {e}")
+    print("Attempting alternative import methods...")
+    
+    # Try importing from the absolute path
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("config", os.path.join(src_dir, "core", "config.py"))
+        config_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(config_module)
+        settings = config_module.settings
+        print("✅ Successfully imported config using importlib")
+    except Exception as e2:
+        print(f"❌ Alternative import also failed: {e2}")
+        # Create a minimal settings object as fallback
+        class MinimalSettings:
+            def __init__(self):
+                self.DEBUG = True
+                self.DATABASE_DSN = "sqlite:///./test.db"
+        settings = MinimalSettings()
+        print("⚠️ Using minimal settings as fallback")
+# Try to import other modules with error handling
+try:
+    from src.api.endpoints import processing, websockets, auth, users, conversation
+    print("✅ Successfully imported API endpoints")
+except ImportError as e:
+    print(f"❌ Failed to import API endpoints: {e}")
+    # Create minimal router objects
+    class MinimalRouter:
+        def __init__(self):
+            pass
+    processing = MinimalRouter()
+    websockets = MinimalRouter()
+    auth = MinimalRouter()
+    users = MinimalRouter()
+    conversation = MinimalRouter()
+
+try:
+    from src.core.redis_client import redis_client
+    print("✅ Successfully imported Redis client")
+except ImportError as e:
+    print(f"❌ Failed to import Redis client: {e}")
+    redis_client = None
+
+try:
+    from src.websockets.manager import connection_manager
+    print("✅ Successfully imported WebSocket manager")
+except ImportError as e:
+    print(f"❌ Failed to import WebSocket manager: {e}")
+    connection_manager = None
+
+try:
+    from src.core.logging_config import setup_logging
+    print("✅ Successfully imported logging config")
+except ImportError as e:
+    print(f"❌ Failed to import logging config: {e}")
+    def setup_logging():
+        pass
+
+try:
+    from src.services.real.vector_store_service import RealVectorStoreService
+    print("✅ Successfully imported vector store service")
+except ImportError as e:
+    print(f"❌ Failed to import vector store service: {e}")
+    class RealVectorStoreService:
+        def __init__(self):
+            pass
 
 
 # ----------------------------
