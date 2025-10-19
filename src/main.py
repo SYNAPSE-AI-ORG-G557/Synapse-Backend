@@ -1,19 +1,29 @@
 # Synapse-Backend/app/main.py
 
+import asyncio
+import json
+import uuid
 import sys
 import os
+from contextlib import asynccontextmanager
 
-# Add project root to sys.path so "src" imports work when running from app/
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add the parent directory to Python path to access src
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+PARENT_DIR = os.path.dirname(APP_DIR)
+if PARENT_DIR not in sys.path:
+    sys.path.insert(0, PARENT_DIR)
 
-from fastapi import FastAPI
-from src.api.endpoints import processing
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware 
+from starlette_prometheus import PrometheusMiddleware, metrics
+import structlog
 
-app = FastAPI(title="Synapse Backend API")
+from src.core.config import settings
+from src.api.endpoints import processing, websockets, auth, users, conversation
+from src.core.redis_client import redis_client
+from src.websockets.manager import connection_manager
+from src.core.logging_config import setup_logging
+from src.services.real.vector_store_service import RealVectorStoreService
 
-@app.get("/")
-def read_root():
-    return {"message": "Hello, Synapse Backend is running!"}
-
-# Register the processing router
-app.include_router(processing.router, prefix="/jobs", tags=["Processing"])
+# Rest of your original main.py code...

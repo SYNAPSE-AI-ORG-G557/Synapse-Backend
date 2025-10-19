@@ -1,6 +1,6 @@
 # Build argument to force rebuild - Railway cache busting
 ARG BUILD_DATE=2025-01-19
-ARG CACHE_BUST=railway-deploy-fix-v2
+ARG CACHE_BUST=railway-deploy-fix-v4
 
 # --- Stage 1: Builder ---
 FROM python:3.11-slim-bookworm AS builder
@@ -37,7 +37,7 @@ COPY --from=builder /usr/local/share /usr/local/share
 COPY ./src /code/src
 COPY ./app /code/app
 
-# Verify the directory structure is correct
+# Verify the directory structure and imports work
 RUN echo "=== Verifying directory structure ===" && \
     ls -la /code/ && \
     echo "=== Contents of /code/src ===" && \
@@ -45,7 +45,10 @@ RUN echo "=== Verifying directory structure ===" && \
     echo "=== Contents of /code/app ===" && \
     ls -la /code/app/ && \
     echo "=== PYTHONPATH ===" && \
-    echo $PYTHONPATH
+    echo $PYTHONPATH && \
+    echo "=== Testing Python imports ===" && \
+    python -c "import sys; print('Python path:', sys.path)" && \
+    python -c "from src.core.config import settings; print('Import successful!')"
 
 # Create non-root user and give it ownership of the code we just copied
 RUN useradd --create-home appuser && chown -R appuser:appuser /code
